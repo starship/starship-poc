@@ -1,6 +1,9 @@
 #[macro_use]
 extern crate anyhow;
 
+#[macro_use]
+extern crate bitflags;
+
 use anyhow::Result;
 use structopt::StructOpt;
 
