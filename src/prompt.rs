@@ -1,8 +1,8 @@
-use crate::vcs::git_status;
+use crate::vcs::{Git, Vcs};
 use anyhow::Result;
 use std::{
     env,
-    path::{Path, PathBuf},
+    path::{Path},
 };
 use structopt::StructOpt;
 
@@ -16,24 +16,22 @@ pub struct PromptOpts {
 /// Render the prompt given the provided prompt options
 pub fn render(prompt_opts: PromptOpts) -> Result<()> {
     let current_dir = env::current_dir()?;
-    let root = find_root(&current_dir)?;
+    let vcs_instance = get_vcs_instance(&current_dir)?;
 
-    let status = git_status(&root);
-    println!("Root: {:?}", root);
-    println!("Status: {:?}", status);
+    // let status = git_status(&root);
+    println!("Root: {:?}", vcs_instance);
 
     unimplemented!()
 }
 
-/// Determine the root of the project that the current directory is within
-fn find_root(path: &Path) -> Result<PathBuf> {
-    let path_to_check = path.join(".git");
-    if path_to_check.exists() {
-        return Ok(path_to_check);
-    };
+/// Determine the root of the project, and return an instance of the VCS tracking it
+fn get_vcs_instance(path: &Path) -> Result<Git> {
+    if let Some(vcs_instance) = Git::get_vcs(path) {
+        return Ok(*vcs_instance);
+    }
 
     match path.parent() {
-        Some(parent) => find_root(parent),
+        Some(parent) => get_vcs_instance(parent),
         None => Err(anyhow!("Cannot find root")),
     }
 }
