@@ -1,9 +1,6 @@
 use crate::vcs::{Git, Vcs};
 use anyhow::Result;
-use std::{
-    env,
-    path::{Path},
-};
+use std::{env, path::Path};
 use structopt::StructOpt;
 
 #[derive(Debug, StructOpt)]
@@ -17,6 +14,7 @@ pub struct PromptOpts {
 pub fn render(prompt_opts: PromptOpts) -> Result<()> {
     let current_dir = env::current_dir()?;
     let vcs_instance = get_vcs_instance(&current_dir)?;
+    vcs_instance.branch();
 
     // let status = git_status(&root);
     println!("Root: {:?}", vcs_instance);

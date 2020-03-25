@@ -71,17 +71,21 @@ impl Vcs for Git {
     }
 }
 
-pub fn git_branch(path: &Path) -> Result<String> {
+pub fn git_branch(root_path: &Path) -> Result<String> {
+    let path_str = root_path.to_str().ok_or(anyhow!("Unable to parse path"))?;
     let output = Command::new("git")
-    .args(&["rev-parse", "--abbrev-ref", "HEAD"])
-    .output()?;
+        .args(&["-C", path_str, "rev-parse", "--abbrev-ref", "HEAD"])
+        .output()?;
     let branch_name = String::from_utf8(output.stdout)?;
-    Ok(branch_name)
+    // Trim newline after branch name
+    let trimmed_branch_name = branch_name.trim_end();
+    Ok(trimmed_branch_name.to_owned())
 }
 
-pub fn git_status(path: &Path) -> Result<VcsStatus> {
+pub fn git_status(root_path: &Path) -> Result<VcsStatus> {
+    let path_str = root_path.to_str().ok_or(anyhow!("Unable to parse path"))?;
     let output = Command::new("git")
-        .args(&["status", "--porcelain", "--branch"])
+        .args(&["-C", path_str, "status", "--porcelain", "--branch"])
         .output()?;
     let output_string = String::from_utf8(output.stdout)?;
     parse_porcelain_output(output_string)
