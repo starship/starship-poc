@@ -1,5 +1,7 @@
 use anyhow::Result;
 use once_cell::sync::OnceCell;
+
+use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
@@ -19,9 +21,6 @@ pub trait Vcs {
     fn status(&self) -> Result<&VcsStatus>;
 }
 
-/// A simplified representation of the current VCS status.
-struct VcsContext {}
-
 #[derive(Debug)]
 pub struct VcsStatus {
     untracked: bool,
@@ -38,6 +37,7 @@ pub struct VcsStatus {
 
 #[derive(Debug)]
 pub struct Git {
+    git_dir: PathBuf,
     root_dir: PathBuf,
     branch: OnceCell<String>,
     status: OnceCell<VcsStatus>,
@@ -49,8 +49,7 @@ impl Vcs for Git {
     }
 
     fn branch(&self) -> Result<&String> {
-        // TODO: Retreive the branch name from `.git/HEAD`
-        self.branch.get_or_try_init(|| git_branch(&self.root_dir))
+        self.branch.get_or_try_init(|| self.extract_branch_name())
     }
 
     fn status(&self) -> Result<&VcsStatus> {
@@ -64,6 +63,7 @@ impl Vcs for Git {
         }
 
         Some(Box::new(Git {
+            git_dir: path.join(".git"),
             root_dir: path.to_path_buf(),
             branch: OnceCell::new(),
             status: OnceCell::new(),
@@ -71,15 +71,21 @@ impl Vcs for Git {
     }
 }
 
-pub fn git_branch(root_path: &Path) -> Result<String> {
-    let path_str = root_path.to_str().ok_or(anyhow!("Unable to parse path"))?;
-    let output = Command::new("git")
-        .args(&["-C", path_str, "rev-parse", "--abbrev-ref", "HEAD"])
-        .output()?;
-    let branch_name = String::from_utf8(output.stdout)?;
-    // Trim newline after branch name
-    let trimmed_branch_name = branch_name.trim_end();
-    Ok(trimmed_branch_name.to_owned())
+impl Git {
+    /// Extract the branch name from `.git/HEAD`
+    ///
+    /// Example file contents:
+    /// ```
+    /// ref: refs/heads/master
+    /// ```
+    fn extract_branch_name(&self) -> Result<String> {
+        let head_file = self.git_dir.join("HEAD");
+        let head_contents = fs::read_to_string(head_file)?;
+        let branch_start = head_contents.rfind('/').ok_or(anyhow!("Unable to extract branch name"))?;
+        let branch_name = &head_contents[branch_start + 1..];
+        let trimmed_branch_name = branch_name.trim_end();
+        Ok(trimmed_branch_name.to_owned())
+    }
 }
 
 pub fn git_status(root_path: &Path) -> Result<VcsStatus> {
