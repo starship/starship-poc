@@ -49,11 +49,11 @@ impl Vcs for Git {
     }
 
     fn branch(&self) -> Result<&String> {
-        self.branch.get_or_try_init(|| self.extract_branch_name())
+        self.branch.get_or_try_init(|| self.git_branch())
     }
 
     fn status(&self) -> Result<&VcsStatus> {
-        self.status.get_or_try_init(|| git_status(&self.root_dir))
+        self.status.get_or_try_init(|| self.git_status())
     }
 
     fn get_vcs(path: &Path) -> Option<Box<Self>> {
@@ -78,7 +78,7 @@ impl Git {
     /// ```
     /// ref: refs/heads/master
     /// ```
-    fn extract_branch_name(&self) -> Result<String> {
+    fn git_branch(&self) -> Result<String> {
         let head_file = self.git_dir.join("HEAD");
         let head_contents = fs::read_to_string(head_file)?;
         let branch_start = head_contents.rfind('/').ok_or(anyhow!("Unable to extract branch name"))?;
@@ -86,18 +86,19 @@ impl Git {
         let trimmed_branch_name = branch_name.trim_end();
         Ok(trimmed_branch_name.to_owned())
     }
+
+    /// Get git status by running `git status --porcelain`
+    fn git_status(&self) -> Result<VcsStatus> {
+        let path_str = self.root_dir.to_str().ok_or(anyhow!("Unable to parse path"))?;
+        let output = Command::new("git")
+            .args(&["-C", path_str, "status", "--porcelain", "--branch"])
+            .output()?;
+        let output_string = String::from_utf8(output.stdout)?;
+        parse_porcelain_output(output_string)
+    }
 }
 
-pub fn git_status(root_path: &Path) -> Result<VcsStatus> {
-    let path_str = root_path.to_str().ok_or(anyhow!("Unable to parse path"))?;
-    let output = Command::new("git")
-        .args(&["-C", path_str, "status", "--porcelain", "--branch"])
-        .output()?;
-    let output_string = String::from_utf8(output.stdout)?;
-    parse_porcelain_output(output_string)
-}
-
-/// Parse git status values from `git status --porcelain --branch`
+/// Parse git status values from `git status --porcelain`
 ///
 /// Example porcelain output:
 /// ```sh

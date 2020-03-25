@@ -14,9 +14,10 @@ pub struct PromptOpts {
 pub fn render(prompt_opts: PromptOpts) -> Result<()> {
     let current_dir = env::current_dir()?;
     let vcs_instance = get_vcs_instance(&current_dir)?;
-    vcs_instance.branch();
 
-    // let status = git_status(&root);
+    let _branch = vcs_instance.branch();
+    let _status = vcs_instance.status();
+
     println!("Root: {:?}", vcs_instance);
 
     unimplemented!()
