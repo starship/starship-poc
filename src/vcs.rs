@@ -21,18 +21,18 @@ pub trait Vcs {
     fn status(&self) -> Result<&VcsStatus>;
 }
 
-#[derive(Debug)]
+#[derive(Default, Debug)]
 pub struct VcsStatus {
-    untracked: bool,
-    added: bool,
-    modified: bool,
-    renamed: bool,
-    deleted: bool,
-    stashed: bool,
-    unmerged: bool,
-    ahead: bool,
-    behind: bool,
-    diverged: bool,
+    untracked: u8,
+    added: u8,
+    modified: u8,
+    renamed: u8,
+    deleted: u8,
+    stashed: u8,
+    unmerged: u8,
+    ahead: u8,
+    behind: u8,
+    diverged: u8,
 }
 
 #[derive(Debug)]
@@ -107,66 +107,34 @@ impl Git {
 /// ```
 fn parse_porcelain_output(porcelain_str: String) -> Result<VcsStatus> {
     let porcelain_lines = porcelain_str.lines();
-    let file_status = status_from_porcelain_lines(porcelain_lines);
+    let mut vcs_status: VcsStatus = Default::default();
 
-    Ok(VcsStatus {
-        untracked: file_status.contains(GitFileStatus::UNTRACKED),
-        added: file_status.contains(GitFileStatus::ADDED),
-        modified: file_status.contains(GitFileStatus::MODIFIED),
-        renamed: file_status.contains(GitFileStatus::RENAMED),
-        deleted: file_status.contains(GitFileStatus::DELETED),
-        stashed: false,
-        unmerged: false,
-        ahead: false,
-        behind: false,
-        diverged: false,
-    })
-}
-
-bitflags! {
-    /// Status flags for a single file
-    #[derive(Default)]
-    pub struct GitFileStatus: u8 {
-        const ADDED =     0b0000001;
-        const MODIFIED =  0b0000010;
-        const DELETED =   0b0000100;
-        const RENAMED =   0b0001000;
-        const COPIED =    0b0010000;
-        const UPDATED =   0b0100000;
-        const UNTRACKED = 0b1000000;
-    }
-}
-
-/// Parse VCS status from `git status --porcelain`
-/// https://git-scm.com/docs/git-status#_output
-fn status_from_porcelain_lines(porcelain_lines: std::str::Lines) -> GitFileStatus {
-    let empty_status: GitFileStatus = Default::default();
-
-    porcelain_lines.fold(empty_status, |acc, current_line| {
-        let mut characters = current_line.chars();
+    porcelain_lines.for_each(|line| {
+        let mut characters = line.chars();
+        
+        // Extract the first two letter of each line
         let letter_codes = (
             characters.next().unwrap_or(' '),
             characters.next().unwrap_or(' '),
         );
 
-        let index_status = parse_status_letter(letter_codes.0);
-        let work_tree_status = parse_status_letter(letter_codes.1);
+        increment_vcs_status(&mut vcs_status, letter_codes.0);
+        increment_vcs_status(&mut vcs_status, letter_codes.1);
+    });
 
-        acc | index_status | work_tree_status
-    })
+    Ok(vcs_status)
 }
-
 /// Return the file status, given the "short format" letter of a status
 /// https://git-scm.com/docs/git-status#_short_format
-fn parse_status_letter(letter: char) -> GitFileStatus {
+fn increment_vcs_status(vcs_status: &mut VcsStatus, letter: char) {
     match letter {
-        'A' => GitFileStatus::ADDED,
-        'M' => GitFileStatus::MODIFIED,
-        'D' => GitFileStatus::DELETED,
-        'R' => GitFileStatus::RENAMED,
-        'C' => GitFileStatus::COPIED,
-        'U' => GitFileStatus::UPDATED,
-        '?' => GitFileStatus::UNTRACKED,
-        _ => Default::default(),
+        'A' => vcs_status.added += 1,
+        'M' => vcs_status.modified += 1,
+        'D' => vcs_status.deleted += 1,
+        'R' => vcs_status.renamed += 1,
+        'C' => vcs_status.added += 1,
+        'U' => vcs_status.modified += 1,
+        '?' => vcs_status.untracked += 1,
+        _ => ()
     }
 }
