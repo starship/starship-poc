@@ -1,39 +1,10 @@
-use anyhow::Result;
+use super::{Vcs, VcsStatus};
 use once_cell::sync::OnceCell;
+use anyhow::Result;
 
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
-
-/// A struct representing a version control system instance for a project
-pub trait Vcs {
-    /// Get the VCS instance for a given directory.
-    /// Returns an instance of `Vcs` if the directory is being tracked.
-    fn get_vcs(path: &Path) -> Option<Box<Self>>;
-
-    /// Get the project root.
-    fn root(&self) -> &Path;
-
-    /// Retreive the branch name of the project root.
-    fn branch(&self) -> Result<&String>;
-
-    /// Determine the status of a VCS system of the project root.
-    fn status(&self) -> Result<&VcsStatus>;
-}
-
-#[derive(Default, Debug)]
-pub struct VcsStatus {
-    untracked: u8,
-    added: u8,
-    modified: u8,
-    renamed: u8,
-    deleted: u8,
-    stashed: u8,
-    unmerged: u8,
-    ahead: u8,
-    behind: u8,
-    diverged: u8,
-}
 
 #[derive(Debug)]
 pub struct Git {
@@ -56,15 +27,15 @@ impl Vcs for Git {
         self.status.get_or_try_init(|| self.git_status())
     }
 
-    fn get_vcs(path: &Path) -> Option<Box<Self>> {
-        let path_to_check = path.join(".git");
-        if !path_to_check.exists() {
+    fn get_vcs(&self, path: &Path) -> Option<Box<dyn Vcs>> {
+        let vcs_path = path.join(".git");
+        if !vcs_path.exists() {
             return None;
         }
 
         Some(Box::new(Git {
-            git_dir: path.join(".git"),
-            root_dir: path.to_path_buf(),
+            git_dir: vcs_path,
+            root_dir: path.into(),
             branch: OnceCell::new(),
             status: OnceCell::new(),
         }))
@@ -81,15 +52,20 @@ impl Git {
     fn git_branch(&self) -> Result<String> {
         let head_file = self.git_dir.join("HEAD");
         let head_contents = fs::read_to_string(head_file)?;
-        let branch_start = head_contents.rfind('/').ok_or(anyhow!("Unable to extract branch name"))?;
+        let branch_start = head_contents
+            .rfind('/')
+            .ok_or(anyhow!("Unable to extract branch name"))?;
         let branch_name = &head_contents[branch_start + 1..];
         let trimmed_branch_name = branch_name.trim_end();
-        Ok(trimmed_branch_name.to_owned())
+        Ok(trimmed_branch_name.into())
     }
 
     /// Get git status by running `git status --porcelain`
     fn git_status(&self) -> Result<VcsStatus> {
-        let path_str = self.root_dir.to_str().ok_or(anyhow!("Unable to parse path"))?;
+        let path_str = self
+            .root_dir
+            .to_str()
+            .ok_or(anyhow!("Unable to parse path"))?;
         let output = Command::new("git")
             .args(&["-C", path_str, "status", "--porcelain"])
             .output()?;
@@ -111,7 +87,7 @@ fn parse_porcelain_output(porcelain_str: String) -> Result<VcsStatus> {
 
     porcelain_lines.for_each(|line| {
         let mut characters = line.chars();
-        
+
         // Extract the first two letter of each line
         let letter_codes = (
             characters.next().unwrap_or(' '),
@@ -135,6 +111,6 @@ fn increment_vcs_status(vcs_status: &mut VcsStatus, letter: char) {
         'C' => vcs_status.added += 1,
         'U' => vcs_status.modified += 1,
         '?' => vcs_status.untracked += 1,
-        _ => ()
+        _ => (),
     }
 }

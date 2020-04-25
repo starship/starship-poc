@@ -1,7 +1,9 @@
-use crate::vcs::{Git, Vcs};
+use crate::vcs::{Vcs, Git, Mercurial};
 use anyhow::Result;
-use std::{env, path::Path};
 use structopt::StructOpt;
+
+use std::fmt::Debug;
+use std::{env, path::Path};
 
 #[derive(Debug, StructOpt)]
 /// Arguments passed to the starship prompt command
@@ -18,19 +20,24 @@ pub fn render(prompt_opts: PromptOpts) -> Result<()> {
     let _branch = vcs_instance.branch();
     let _status = vcs_instance.status();
 
-    println!("Root: {:?}", vcs_instance);
+    // println!("Root: {:?}", vcs_instance);
 
     unimplemented!()
 }
 
 /// Determine the root of the project, and return an instance of the VCS tracking it
-fn get_vcs_instance(path: &Path) -> Result<Git> {
+fn get_vcs_instance(path: &Path) -> Result<Box<dyn Vcs>> {
     if let Some(vcs_instance) = Git::get_vcs(path) {
-        return Ok(*vcs_instance);
+        return Ok(vcs_instance);
     }
 
-    match path.parent() {
-        Some(parent) => get_vcs_instance(parent),
-        None => Err(anyhow!("Cannot find root")),
+    if let Some(vcs_instance) = Mercurial::get_vcs(path) {
+        return Ok(vcs_instance);
     }
+
+    unimplemented!();
+    // match path.parent() {
+    //     Some(parent) => get_vcs_instance(parent),
+    //     None => Err(anyhow!("Cannot find root")),
+    // }
 }
