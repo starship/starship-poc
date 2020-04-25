@@ -91,7 +91,7 @@ impl Git {
     fn git_status(&self) -> Result<VcsStatus> {
         let path_str = self.root_dir.to_str().ok_or(anyhow!("Unable to parse path"))?;
         let output = Command::new("git")
-            .args(&["-C", path_str, "status", "--porcelain", "--branch"])
+            .args(&["-C", path_str, "status", "--porcelain"])
             .output()?;
         let output_string = String::from_utf8(output.stdout)?;
         parse_porcelain_output(output_string)
@@ -106,7 +106,7 @@ impl Git {
 ///  M src/main.rs
 /// ```
 fn parse_porcelain_output(porcelain_str: String) -> Result<VcsStatus> {
-    let mut porcelain_lines = porcelain_str.lines();
+    let porcelain_lines = porcelain_str.lines();
     let file_status = status_from_porcelain_lines(porcelain_lines);
 
     Ok(VcsStatus {
