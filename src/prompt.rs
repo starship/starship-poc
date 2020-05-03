@@ -3,7 +3,7 @@ use anyhow::Result;
 use structopt::StructOpt;
 
 use std::fmt::Debug;
-use std::env;
+use std::{env, path::Path};
 
 #[derive(Debug, StructOpt)]
 /// Arguments passed to the starship prompt command
@@ -20,8 +20,7 @@ pub fn render(prompt_opts: PromptOpts) -> Result<()> {
     let _branch = vcs_instance.branch();
     let _status = vcs_instance.status();
 
-    println!("Root: {:?}", _branch);
-    println!("Root: {:?}", _status);
+    println!("Root: {:?}", vcs_instance);
 
     unimplemented!()
 }

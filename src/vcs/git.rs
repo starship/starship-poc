@@ -15,6 +15,20 @@ pub struct Git {
 }
 
 impl Vcs for Git {
+    fn new(path: &Path) -> Option<Box<dyn Vcs>> {
+        let vcs_path = path.join(".git");
+        if !vcs_path.exists() {
+            return None;
+        }
+
+        Some(Box::new(Git {
+            git_dir: vcs_path,
+            root_dir: path.into(),
+            branch: OnceCell::new(),
+            status: OnceCell::new(),
+        }))
+    }
+
     fn root(&self) -> &Path {
         self.root_dir.as_ref()
     }
@@ -29,20 +43,6 @@ impl Vcs for Git {
 }
 
 impl Git {
-    pub fn new(path: &Path) -> Option<Box<Self>> {
-        let vcs_path = path.join(".git");
-        if !vcs_path.exists() {
-            return None;
-        }
-
-        Some(Box::new(Git {
-            git_dir: vcs_path,
-            root_dir: path.into(),
-            branch: OnceCell::new(),
-            status: OnceCell::new(),
-        }))
-    }
-
     /// Extract the branch name from `.git/HEAD`
     ///
     /// Example file contents:

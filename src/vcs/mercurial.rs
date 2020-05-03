@@ -13,6 +13,20 @@ pub struct Mercurial {
 }
 
 impl Vcs for Mercurial {
+    fn new(path: &Path) -> Option<Box<dyn Vcs>> {
+        let vcs_path = path.join(".hg");
+        if !vcs_path.exists() {
+            return None;
+        }
+
+        Some(Box::new(Mercurial {
+            hg_dir: vcs_path,
+            root_dir: path.into(),
+            branch: OnceCell::new(),
+            status: OnceCell::new(),
+        }))
+    }
+
     fn root(&self) -> &Path {
         self.root_dir.as_ref()
     }
