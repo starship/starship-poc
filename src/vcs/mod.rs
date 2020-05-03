@@ -9,10 +9,6 @@ pub use mercurial::Mercurial;
 
 /// A struct representing a version control system instance for a project
 pub trait Vcs {
-    /// Get the VCS instance for a given directory.
-    /// Returns an instance of `Vcs` if the directory is being tracked.
-    fn get_vcs(&self, path: &Path) -> Option<Box<dyn Vcs>>;
-
     /// Get the project root.
     fn root(&self) -> &Path;
 
@@ -35,4 +31,20 @@ pub struct VcsStatus {
     ahead: u8,
     behind: u8,
     diverged: u8,
+}
+
+/// Determine the root of the project, and return an instance of the VCS tracking it
+pub fn get_vcs_instance(path: &Path) -> Result<Box<dyn Vcs>> {
+    if let Some(vcs_instance) = Git::new(path) {
+        return Ok(vcs_instance);
+    }
+
+    if let Some(vcs_instance) = Mercurial::new(path) {
+        return Ok(vcs_instance);
+    }
+
+    match path.parent() {
+        Some(parent) => get_vcs_instance(parent),
+        None => Err(anyhow!("Cannot find root")),
+    }
 }

@@ -26,8 +26,10 @@ impl Vcs for Git {
     fn status(&self) -> Result<&VcsStatus> {
         self.status.get_or_try_init(|| self.git_status())
     }
+}
 
-    fn get_vcs(&self, path: &Path) -> Option<Box<dyn Vcs>> {
+impl Git {
+    pub fn new(path: &Path) -> Option<Box<Self>> {
         let vcs_path = path.join(".git");
         if !vcs_path.exists() {
             return None;
@@ -40,9 +42,7 @@ impl Vcs for Git {
             status: OnceCell::new(),
         }))
     }
-}
 
-impl Git {
     /// Extract the branch name from `.git/HEAD`
     ///
     /// Example file contents:

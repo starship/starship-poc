@@ -2,7 +2,6 @@ use super::{Vcs, VcsStatus};
 use once_cell::sync::OnceCell;
 use anyhow::Result;
 
-use std::fs;
 use std::path::{Path, PathBuf};
 
 #[derive(Debug)]
@@ -23,11 +22,12 @@ impl Vcs for Mercurial {
     }
 
     fn status(&self) -> Result<&VcsStatus> {
-        // self.status.get_or_try_init(|| self.hg_status())
-        unimplemented!()
+        self.status.get_or_try_init(|| self.hg_status())
     }
+}
 
-    fn get_vcs(&self, path: &Path) -> Option<Box<dyn Vcs>> {
+impl Mercurial {
+    pub fn new(path: &Path) -> Option<Box<Self>> {
         let vcs_path = path.join(".hg");
         if !vcs_path.exists() {
             return None;
@@ -40,17 +40,12 @@ impl Vcs for Mercurial {
             status: OnceCell::new(),
         }))
     }
-}
 
-impl Mercurial {
     fn hg_branch(&self) -> Result<String> {
-        let branch_file = self.hg_dir.join("branch");
-        let branch_name = fs::read_to_string(branch_file)?;
-        let trimmed_branch_name = branch_name.trim();
-        Ok(branch_name.into())
+        unimplemented!()
     }
 
-    fn hg_status(&self) -> Result<String> {
+    fn hg_status(&self) -> Result<VcsStatus> {
         unimplemented!()
     }
 }
