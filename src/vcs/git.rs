@@ -1,6 +1,6 @@
 use super::{Vcs, VcsStatus};
-use once_cell::sync::OnceCell;
 use anyhow::Result;
+use once_cell::sync::OnceCell;
 
 use std::fs;
 use std::path::{Path, PathBuf};
