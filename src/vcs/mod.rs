@@ -1,6 +1,6 @@
 use anyhow::Result;
-use std::path::Path;
 use core::fmt::Debug;
+use std::path::Path;
 
 pub mod git;
 pub use git::Git;
@@ -11,7 +11,9 @@ pub use mercurial::Mercurial;
 /// A struct representing a version control system instance for a project
 pub trait Vcs: Debug {
     /// Create a new VCS instance if the given directory is being tracked
-    fn new(path: &Path) -> Option<Box<dyn Vcs>> where Self: Sized;
+    fn new(path: &Path) -> Option<Box<dyn Vcs>>
+    where
+        Self: Sized;
 
     /// Get the project root.
     fn root(&self) -> &Path;

@@ -2,10 +2,10 @@ use crate::vcs;
 use anyhow::Result;
 use structopt::StructOpt;
 
+use std::env;
 use std::fmt::Debug;
-use std::{env, path::Path};
 
-#[derive(Debug, StructOpt)]
+#[derive(Debug, Default, StructOpt)]
 /// Arguments passed to the starship prompt command
 pub struct PromptOpts {
     #[structopt(short, long)]
@@ -22,5 +22,5 @@ pub fn render(prompt_opts: PromptOpts) -> Result<()> {
 
     println!("Root: {:?}", vcs_instance);
 
-    unimplemented!()
+    Ok(())
 }
