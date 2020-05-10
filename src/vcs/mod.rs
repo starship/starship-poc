@@ -8,9 +8,11 @@ pub use git::Git;
 pub mod mercurial;
 pub use mercurial::Mercurial;
 
-/// A struct representing a version control system instance for a project
+/// A trait for the ability to be used a version control system
 pub trait Vcs: Debug {
     /// Create a new VCS instance if the given directory is being tracked
+    // Without `Self: Sized`, this function runs into compilation issues to do
+    // with the number of params provided when the function is called.
     fn new(path: &Path) -> Option<Box<dyn Vcs>>
     where
         Self: Sized;
@@ -40,13 +42,17 @@ pub struct VcsStatus {
 }
 
 /// Determine the root of the project, and return an instance of the VCS tracking it
+///
+/// This function runs the initializers of each of the supported VCS systems, returning
+/// an instance of the system that is tracking the project containing the current directory.
 pub fn get_vcs_instance(path: &Path) -> Result<Box<dyn Vcs>> {
-    if let Some(vcs_instance) = Git::new(path) {
-        return Ok(vcs_instance);
-    }
+    let vcs_initializers: Vec<fn(&Path) -> Option<Box<dyn Vcs>>> = vec![Git::new, Mercurial::new];
 
-    if let Some(vcs_instance) = Mercurial::new(path) {
-        return Ok(vcs_instance);
+    for initializer in vcs_initializers {
+        match initializer(path) {
+            Some(vcs_instance) => return Ok(vcs_instance),
+            None => continue,
+        }
     }
 
     match path.parent() {

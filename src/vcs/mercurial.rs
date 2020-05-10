@@ -41,20 +41,6 @@ impl Vcs for Mercurial {
 }
 
 impl Mercurial {
-    pub fn new(path: &Path) -> Option<Box<Self>> {
-        let vcs_path = path.join(".hg");
-        if !vcs_path.exists() {
-            return None;
-        }
-
-        Some(Box::new(Mercurial {
-            hg_dir: vcs_path,
-            root_dir: path.to_path_buf(),
-            branch: OnceCell::new(),
-            status: OnceCell::new(),
-        }))
-    }
-
     fn hg_branch(&self) -> Result<String> {
         unimplemented!()
     }
