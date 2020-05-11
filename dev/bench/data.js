@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1589138095938,
+  "lastUpdate": 1589210505845,
   "repoUrl": "https://github.com/matchai/starship-poc",
   "entries": {
     "Rust Benchmark": [
@@ -149,6 +149,36 @@ window.BENCHMARK_DATA = {
             "name": "bench_render",
             "value": 17385,
             "range": "± 3142",
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "hello@matchai.dev",
+            "name": "Matan Kushner",
+            "username": "matchai"
+          },
+          "committer": {
+            "email": "hello@matchai.dev",
+            "name": "Matan Kushner",
+            "username": "matchai"
+          },
+          "distinct": true,
+          "id": "947b2246e4be2f23e91f43d375a52de855320ebc",
+          "message": "Extract context into its own module",
+          "timestamp": "2020-05-11T11:19:43-04:00",
+          "tree_id": "78eec35bbee8ac3cf634e03e1bc81d981bfada42",
+          "url": "https://github.com/matchai/starship-poc/commit/947b2246e4be2f23e91f43d375a52de855320ebc"
+        },
+        "date": 1589210505280,
+        "tool": "cargo",
+        "benches": [
+          {
+            "name": "bench_render",
+            "value": 22534,
+            "range": "± 4115",
             "unit": "ns/iter"
           }
         ]
