@@ -1,17 +1,9 @@
-use crate::vcs::{self, Vcs};
+use crate::context::Context;
+use crate::module;
 use anyhow::Result;
 use structopt::StructOpt;
 
-use std::env;
 use std::fmt::Debug;
-use std::path::PathBuf;
-
-#[derive(Debug)]
-pub struct Context {
-    current_dir: PathBuf,
-    vcs_instance: Option<Box<dyn Vcs>>,
-    prompt_opts: PromptOpts,
-}
 
 #[derive(Debug, Default, StructOpt)]
 /// Arguments passed to the starship prompt command
@@ -22,16 +14,11 @@ pub struct PromptOpts {
 
 /// Render the prompt given the provided prompt options
 pub fn render(prompt_opts: PromptOpts) -> Result<()> {
-    let current_dir = env::current_dir()?;
-    let vcs_instance = vcs::get_vcs_instance(&current_dir).ok();
+    let prompt_context = Context::new(prompt_opts);
+    println!("Context: {:#?}", prompt_context);
 
-    let prompt_context = Context {
-        current_dir,
-        vcs_instance,
-        prompt_opts,
-    };
-
-    println!("{:#?}", prompt_context);
+    let dir_module = module::prepare("directory", &prompt_context);
+    println!("Dir Module: {:#?}", dir_module);
 
     Ok(())
 }

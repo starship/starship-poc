@@ -4,6 +4,8 @@ extern crate anyhow;
 use anyhow::Result;
 use structopt::StructOpt;
 
+mod context;
+mod module;
 mod prompt;
 mod vcs;
 
