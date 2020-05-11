@@ -5,6 +5,7 @@ use anyhow::Result;
 use structopt::StructOpt;
 
 mod context;
+mod formatter;
 mod module;
 mod prompt;
 mod vcs;

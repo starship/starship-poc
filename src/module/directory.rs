@@ -23,6 +23,10 @@ impl Module for Directory {
         &self.format_variables
     }
 
+    fn default_format_string(&self) -> String {
+        "$path".to_string()
+    }
+
     /// The directory module is always visible
     fn is_visible(&self) -> bool {
         true

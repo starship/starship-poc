@@ -18,8 +18,8 @@ pub trait Module: Debug {
     /// The variables available to format strings when displaying this module.
     fn variables(&self) -> &HashMap<String, String>;
 
-    // /// The format string to be used when displaying this module.
-    // fn format(&self) -> String;
+    /// The format string to be used when displaying this module.
+    fn default_format_string(&self) -> String;
 
     /// A description of this module.
     fn description(&self) -> String;

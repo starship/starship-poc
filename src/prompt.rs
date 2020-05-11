@@ -1,4 +1,5 @@
 use crate::context::Context;
+use crate::formatter;
 use crate::module;
 use anyhow::Result;
 use structopt::StructOpt;
@@ -15,10 +16,14 @@ pub struct PromptOpts {
 /// Render the prompt given the provided prompt options
 pub fn render(prompt_opts: PromptOpts) -> Result<()> {
     let prompt_context = Context::new(prompt_opts);
-    println!("Context: {:#?}", prompt_context);
+    println!("{:#?}", prompt_context);
 
-    let dir_module = module::prepare("directory", &prompt_context);
-    println!("Dir Module: {:#?}", dir_module);
+    let dir_module = module::prepare("directory", &prompt_context)?;
+    println!("{:#?}", dir_module);
+
+    let formatter = formatter::detect();
+    let output = formatter.format(dir_module);
+    println!("{}", output);
 
     Ok(())
 }
