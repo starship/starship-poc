@@ -46,7 +46,7 @@ impl Git {
     /// Extract the branch name from `.git/HEAD`
     ///
     /// Example file contents:
-    /// ```
+    /// ```code
     /// ref: refs/heads/master
     /// ```
     fn git_branch(&self) -> Result<String> {
@@ -77,11 +77,12 @@ impl Git {
 /// Parse git status values from `git status --porcelain`
 ///
 /// Example porcelain output:
-/// ```sh
+/// ```code
 ///  M src/prompt.rs
 ///  M src/main.rs
 /// ```
-fn parse_porcelain_output(porcelain_str: String) -> Result<VcsStatus> {
+fn parse_porcelain_output<S: Into<String>>(porcelain: S) -> Result<VcsStatus> {
+    let porcelain_str = porcelain.into();
     let porcelain_lines = porcelain_str.lines();
     let mut vcs_status: VcsStatus = Default::default();
 
@@ -94,12 +95,17 @@ fn parse_porcelain_output(porcelain_str: String) -> Result<VcsStatus> {
             characters.next().unwrap_or(' '),
         );
 
-        increment_vcs_status(&mut vcs_status, letter_codes.0);
-        increment_vcs_status(&mut vcs_status, letter_codes.1);
+        if (letter_codes.0 == letter_codes.1) {
+            increment_vcs_status(&mut vcs_status, letter_codes.0);
+        } else {
+            increment_vcs_status(&mut vcs_status, letter_codes.0);
+            increment_vcs_status(&mut vcs_status, letter_codes.1);
+        }
     });
 
     Ok(vcs_status)
 }
+
 /// Return the file status, given the "short format" letter of a status
 /// https://git-scm.com/docs/git-status#_short_format
 fn increment_vcs_status(vcs_status: &mut VcsStatus, letter: char) {
@@ -112,5 +118,38 @@ fn increment_vcs_status(vcs_status: &mut VcsStatus, letter: char) {
         'U' => vcs_status.modified += 1,
         '?' => vcs_status.untracked += 1,
         _ => (),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_parse_empty_porcelain_output() -> Result<()> {
+        let output = parse_porcelain_output("")?;
+
+        let expected: VcsStatus = Default::default();
+        assert_eq!(output, expected);
+        Ok(())
+    }
+
+    #[test]
+    fn test_parse_porcelain_output() -> Result<()> {
+        let output = parse_porcelain_output(
+            "M src/prompt.rs
+MM src/main.rs
+A src/formatter.rs
+? README.md",
+        )?;
+
+        let expected = VcsStatus {
+            modified: 2,
+            added: 1,
+            untracked: 1,
+            ..Default::default()
+        };
+        assert_eq!(output, expected);
+        Ok(())
     }
 }

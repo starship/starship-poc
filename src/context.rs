@@ -14,13 +14,13 @@ pub struct Context {
 
 impl Context {
     pub fn new(prompt_opts: prompt::PromptOpts) -> Self {
-        let current_dir =  Self::get_current_dir().expect("Unable to get current directory");
+        let current_dir = Self::get_current_dir().expect("Unable to get current directory");
         let vcs_instance = vcs::get_vcs_instance(&current_dir).ok();
 
         Context {
             current_dir,
             vcs_instance,
-            prompt_opts
+            prompt_opts,
         }
     }
 

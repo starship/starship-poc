@@ -27,7 +27,7 @@ pub trait Vcs: Debug {
     fn status(&self) -> Result<&VcsStatus>;
 }
 
-#[derive(Default, Debug)]
+#[derive(Default, Debug, PartialEq)]
 pub struct VcsStatus {
     untracked: u8,
     added: u8,
