@@ -21,5 +21,5 @@ pub fn render(prompt_opts: PromptOpts) -> Result<String> {
 
     let formatter = formatter::detect();
     let output = formatter.format(dir_module);
-    Ok(output.unwrap_or_else(||String::from("")))
+    Ok(output.unwrap_or_else(|| String::from("")))
 }

@@ -1,6 +1,6 @@
 #[macro_use]
 extern crate criterion;
-use criterion:: Criterion;
+use criterion::Criterion;
 use starship_poc::prompt;
 
 fn bench_render(c: &mut Criterion) {
