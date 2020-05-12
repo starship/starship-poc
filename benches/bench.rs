@@ -1,14 +1,16 @@
-#![feature(test)]
-
-extern crate test;
-
+#[macro_use]
+extern crate criterion;
+use criterion:: Criterion;
 use starship_poc::prompt;
-use test::Bencher;
 
-#[bench]
-fn bench_render(b: &mut Bencher) {
-    b.iter(|| {
-        let prompt_opts = Default::default();
-        prompt::render(prompt_opts);
-    })
+fn bench_render(c: &mut Criterion) {
+    c.bench_function("BenchRender", move |b| {
+        b.iter(|| {
+            let prompt_opts = Default::default();
+            let _output = prompt::render(prompt_opts);
+        })
+    });
 }
+
+criterion_group!(benches, bench_render);
+criterion_main!(benches);

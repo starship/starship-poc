@@ -26,6 +26,26 @@ jobs:
           - ubuntu-latest
           - macOS-latest
           - windows-latest
+    steps:
+      - uses: actions/checkout@v2
+      - uses: actions-rs/toolchain@v1
+        with:
+          profile: minimal
+          toolchain: stable
+          override: true
+      - uses: actions-rs/cargo@v1
+        with:
+          command: test
+
+  coverage:
+    name: Test Coverage
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os:
+          - ubuntu-latest
+          - macOS-latest
+          - windows-latest
 
     steps:
       - uses: actions/checkout@v2
@@ -53,7 +73,7 @@ jobs:
           use-tool-cache: true
 
       - name: Gather coverage data
-        id: coverage  
+        id: coverage
         uses: actions-rs/grcov@v0.1
 
       - name: Upload to Codecov

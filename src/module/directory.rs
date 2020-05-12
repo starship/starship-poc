@@ -10,7 +10,7 @@ pub struct Directory {
 }
 
 impl Module for Directory {
-    fn new(context: &Context) -> Result<Box<dyn Module>> {
+    fn prepare(context: &Context) -> Result<Box<dyn Module>> {
         let current_dir = context.current_dir.to_string_lossy().to_string();
 
         let mut format_variables = HashMap::new();

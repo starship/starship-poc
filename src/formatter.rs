@@ -26,7 +26,7 @@ impl Formatter {
 }
 
 pub fn detect() -> Formatter {
-    let shell_var = env::var("STARSHIP_SHELL").unwrap_or(String::from(""));
+    let shell_var = env::var("STARSHIP_SHELL").unwrap_or_else(|_|String::from(""));
 
     let shell = match shell_var.as_ref() {
         "fish" => Shell::Fish,

@@ -8,7 +8,7 @@ mod directory;
 
 /// A trait for the ability to be represented as a prompt module
 pub trait Module: Debug {
-    fn new(context: &Context) -> Result<Box<dyn Module>>
+    fn prepare(context: &Context) -> Result<Box<dyn Module>>
     where
         Self: Sized;
 
@@ -27,7 +27,7 @@ pub trait Module: Debug {
 
 pub fn prepare(module_name: &str, context: &Context) -> Result<Box<dyn Module>> {
     match module_name {
-        "directory" => directory::Directory::new(context),
+        "directory" => directory::Directory::prepare(context),
         _ => Err(anyhow!("No module exists named '{}'", module_name)),
     }
 }

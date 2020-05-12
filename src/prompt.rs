@@ -14,14 +14,12 @@ pub struct PromptOpts {
 }
 
 /// Render the prompt given the provided prompt options
-pub fn render(prompt_opts: PromptOpts) -> Result<()> {
+pub fn render(prompt_opts: PromptOpts) -> Result<String> {
     let prompt_context = Context::new(prompt_opts);
 
     let dir_module = module::prepare("directory", &prompt_context)?;
 
     let formatter = formatter::detect();
     let output = formatter.format(dir_module);
-    println!("{}", output.unwrap_or(String::from("")));
-
-    Ok(())
+    Ok(output.unwrap_or_else(||String::from("")))
 }

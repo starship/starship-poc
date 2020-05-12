@@ -15,7 +15,7 @@ pub struct Git {
 }
 
 impl Vcs for Git {
-    fn new(path: &Path) -> Option<Box<dyn Vcs>> {
+    fn scan(path: &Path) -> Option<Box<dyn Vcs>> {
         let vcs_path = path.join(".git");
         if !vcs_path.exists() {
             log::trace!("[ ] No Git repository found");
@@ -56,7 +56,7 @@ impl Git {
         let head_contents = fs::read_to_string(head_file)?;
         let branch_start = head_contents
             .rfind('/')
-            .ok_or(anyhow!("Unable to extract branch name"))?;
+            .ok_or_else(|| anyhow!("Unable to extract branch name"))?;
         let branch_name = &head_contents[branch_start + 1..];
         let trimmed_branch_name = branch_name.trim_end();
         Ok(trimmed_branch_name.into())
@@ -67,7 +67,7 @@ impl Git {
         let path_str = self
             .root_dir
             .to_str()
-            .ok_or(anyhow!("Unable to parse path"))?;
+            .ok_or_else(|| anyhow!("Unable to parse path"))?;
         let output = Command::new("git")
             .args(&["-C", path_str, "status", "--porcelain"])
             .output()?;
