@@ -36,6 +36,6 @@ pub fn detect() -> Formatter {
         _ => Shell::Unknown,
     };
 
-    log::debug!("shell detected: {:?}", shell);
+    log::debug!("Shell detected: {:?}", shell);
     Formatter { shell }
 }

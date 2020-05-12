@@ -16,9 +16,11 @@ impl Vcs for Mercurial {
     fn new(path: &Path) -> Option<Box<dyn Vcs>> {
         let vcs_path = path.join(".hg");
         if !vcs_path.exists() {
+            log::trace!("[ ] No Mercurial repository found");
             return None;
         }
 
+        log::trace!("[x] Mercurial repository found");
         Some(Box::new(Mercurial {
             hg_dir: vcs_path,
             root_dir: path.into(),

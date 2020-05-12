@@ -48,6 +48,7 @@ pub struct VcsStatus {
 pub fn get_vcs_instance(path: &Path) -> Result<Box<dyn Vcs>> {
     let vcs_initializers: Vec<fn(&Path) -> Option<Box<dyn Vcs>>> = vec![Git::new, Mercurial::new];
 
+    log::trace!("Checking for VCS instance: {:?}", path);
     for initializer in vcs_initializers {
         match initializer(path) {
             Some(vcs_instance) => return Ok(vcs_instance),

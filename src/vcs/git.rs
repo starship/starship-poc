@@ -18,9 +18,11 @@ impl Vcs for Git {
     fn new(path: &Path) -> Option<Box<dyn Vcs>> {
         let vcs_path = path.join(".git");
         if !vcs_path.exists() {
+            log::trace!("[ ] No Git repository found");
             return None;
         }
 
+        log::trace!("[x] Git repository found");
         Some(Box::new(Git {
             git_dir: vcs_path,
             root_dir: path.into(),
