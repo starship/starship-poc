@@ -19,7 +19,7 @@ pub trait Module: Debug {
     fn variables(&self) -> &HashMap<String, String>;
 
     /// The format string to be used when displaying this module.
-    fn default_format_string(&self) -> String;
+    fn format_string(&self) -> String;
 
     /// A description of this module.
     fn description(&self) -> String;

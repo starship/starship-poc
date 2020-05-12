@@ -23,7 +23,7 @@ impl Module for Directory {
         &self.format_variables
     }
 
-    fn default_format_string(&self) -> String {
+    fn format_string(&self) -> String {
         "$path".to_string()
     }
 

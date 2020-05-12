@@ -1,7 +1,8 @@
-use crate::module;
+use crate::module::Module;
 
 use std::env;
 
+#[derive(Debug)]
 pub enum Shell {
     Bash,
     Fish,
@@ -15,8 +16,12 @@ pub struct Formatter {
 }
 
 impl Formatter {
-    pub fn format(&self, module: Box<dyn module::Module>) -> String {
-        unimplemented!();
+    pub fn format(&self, module: Box<dyn Module>) -> Option<String> {
+        if !module.is_visible() {
+            return None;
+        };
+
+        Some(module.format_string())
     }
 }
 
@@ -31,5 +36,6 @@ pub fn detect() -> Formatter {
         _ => Shell::Unknown,
     };
 
+    log::debug!("shell detected: {:?}", shell);
     Formatter { shell }
 }

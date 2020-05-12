@@ -95,7 +95,7 @@ fn parse_porcelain_output<S: Into<String>>(porcelain: S) -> Result<VcsStatus> {
             characters.next().unwrap_or(' '),
         );
 
-        if (letter_codes.0 == letter_codes.1) {
+        if letter_codes.0 == letter_codes.1 {
             increment_vcs_status(&mut vcs_status, letter_codes.0);
         } else {
             increment_vcs_status(&mut vcs_status, letter_codes.0);
