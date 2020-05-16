@@ -11,8 +11,6 @@ pub use mercurial::Mercurial;
 /// A trait for the ability to be used a version control system
 pub trait Vcs: Debug {
     /// Create a new VCS instance if the given directory is being tracked
-    // Without `Self: Sized`, this function runs into compilation issues to do
-    // with the number of params provided when the function is called.
     fn new(path: &Path) -> Option<Box<dyn Vcs>>
     where
         Self: Sized;
