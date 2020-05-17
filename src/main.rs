@@ -5,10 +5,11 @@ use anyhow::Result;
 use structopt::StructOpt;
 
 mod context;
-mod formatter;
-mod module;
+mod modules;
 mod prompt;
 mod vcs;
+
+pub use modules::module::{Module};
 
 #[derive(Debug, StructOpt)]
 enum Opts {

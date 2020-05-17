@@ -1,4 +1,4 @@
-use crate::module::Module;
+use crate::modules::Module;
 
 use std::env;
 
