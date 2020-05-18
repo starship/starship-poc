@@ -5,10 +5,10 @@ use anyhow::Result;
 use structopt::StructOpt;
 
 mod context;
+mod errors;
 mod modules;
 mod prompt;
 mod vcs;
-mod errors;
 
 pub use modules::module::Module;
 

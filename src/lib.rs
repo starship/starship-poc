@@ -2,7 +2,7 @@
 extern crate anyhow;
 
 pub mod context;
+pub mod errors;
 pub mod modules;
 pub mod prompt;
 pub mod vcs;
-pub mod errors;

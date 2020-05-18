@@ -1,7 +1,7 @@
 use crate::context::Context;
 use crate::modules::ModuleRegistry;
 
-use anyhow::Result;
+use anyhow::{Error, Result};
 use structopt::StructOpt;
 
 use std::fmt::Debug;
@@ -17,25 +17,26 @@ pub struct PromptOpts {
 pub fn render(prompt_opts: PromptOpts) -> Result<()> {
     let prompt_context = Context::new(prompt_opts);
     let mut module_registry = ModuleRegistry::new();
-    
+
     load_modules(&mut module_registry);
 
-    let module_list = vec!["directory", "character", "blah"];
-    let (output, errors): (Vec<_>, Vec<_>) = module_list.into_iter()
+    let module_list = vec!["directory", "new_line", "character", "blah"];
+    let (modules, errors): (Vec<Result<String>>, Vec<Result<String>>) = module_list
+        .into_iter()
         .map(|name| module_registry.expect_module(name))
         .map(|module| module?.format(&prompt_context))
         .partition(Result::is_ok);
 
-    println!("{:?}", output);
-    println!("{:?}", errors);
+    let modules: Vec<String> = modules.into_iter().map(Result::unwrap).collect();
+    let errors: Vec<Error> = errors.into_iter().map(Result::unwrap_err).collect();
+
+    errors.iter().for_each(|error| println!("[!] Error: {}", error));
+    modules.iter().for_each(|module| print!("{}", module));
 
     Ok(())
 }
 
 fn load_modules(module_registry: &mut ModuleRegistry) {
     use crate::modules::*;
-    module_registry.add_modules(vec![
-        module(Directory), 
-        module(Character)
-    ]);
+    module_registry.add_modules(vec![module(Directory), module(Character), module(Newline)]);
 }

@@ -1,10 +1,12 @@
 pub(crate) mod character;
 pub(crate) mod directory;
 pub(crate) mod module;
+pub(crate) mod newline;
 
 pub(crate) use character::Character;
 pub(crate) use directory::Directory;
 pub(crate) use module::{module, Module, ModuleType};
+pub(crate) use newline::Newline;
 
 use crate::errors::ConfigError;
 use anyhow::Result;
@@ -29,9 +31,9 @@ impl ModuleRegistry {
     }
 
     pub fn expect_module(&self, name: &str) -> Result<&Module, ConfigError> {
-        self.registry.get(name).ok_or_else(|| {
-            ConfigError::InvalidModule(name.to_string())
-        })
+        self.registry
+            .get(name)
+            .ok_or_else(|| ConfigError::InvalidModule(name.to_string()))
     }
 
     pub fn add_module(&mut self, module: Module) {
