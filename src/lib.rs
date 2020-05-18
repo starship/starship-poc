@@ -1,8 +1,8 @@
 #[macro_use]
 extern crate anyhow;
 
-mod context;
-mod modules;
-mod prompt;
-mod vcs;
-mod errors;
+pub mod context;
+pub mod modules;
+pub mod prompt;
+pub mod vcs;
+pub mod errors;

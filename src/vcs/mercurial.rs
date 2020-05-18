@@ -13,7 +13,7 @@ pub struct Mercurial {
 }
 
 impl Vcs for Mercurial {
-    fn new(path: &Path) -> Option<Box<dyn Vcs>> {
+    fn scan(path: &Path) -> Option<Box<dyn Vcs>> {
         let vcs_path = path.join(".hg");
         if !vcs_path.exists() {
             log::trace!("[ ] No Mercurial repository found");

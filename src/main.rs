@@ -22,6 +22,9 @@ fn main() -> Result<()> {
     pretty_env_logger::init();
 
     match Opts::from_args() {
-        Opts::Prompt(prompt_opts) => prompt::render(prompt_opts),
+        Opts::Prompt(prompt_opts) => {
+            prompt::render(prompt_opts)?;
+            Ok(())
+        }
     }
 }
