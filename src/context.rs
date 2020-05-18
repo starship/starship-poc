@@ -15,7 +15,7 @@ pub struct Context {
 impl Context {
     pub fn new(prompt_opts: prompt::PromptOpts) -> Self {
         let current_dir = Self::get_current_dir().expect("Unable to get current directory");
-        let vcs_instance = vcs::get_vcs_instance(&current_dir).ok();
+        let vcs_instance = vcs::get_vcs_instance(&current_dir);
 
         Context {
             current_dir,

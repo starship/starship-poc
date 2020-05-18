@@ -43,19 +43,19 @@ pub struct VcsStatus {
 ///
 /// This function runs the initializers of each of the supported VCS systems, returning
 /// an instance of the system that is tracking the project containing the current directory.
-pub fn get_vcs_instance(path: &Path) -> Result<Box<dyn Vcs>> {
+pub fn get_vcs_instance(path: &Path) -> Option<Box<dyn Vcs>> {
     let vcs_initializers: Vec<fn(&Path) -> Option<Box<dyn Vcs>>> = vec![Git::new, Mercurial::new];
 
     log::trace!("Checking for VCS instance: {:?}", path);
     for initializer in vcs_initializers {
         match initializer(path) {
-            Some(vcs_instance) => return Ok(vcs_instance),
+            Some(vcs_instance) => return Some(vcs_instance),
             None => continue,
         }
     }
 
     match path.parent() {
         Some(parent) => get_vcs_instance(parent),
-        None => Err(anyhow!("Cannot find root")),
+        None => None,
     }
 }
