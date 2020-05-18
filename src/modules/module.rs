@@ -1,5 +1,5 @@
-use anyhow::Result;
 use crate::context::Context;
+use anyhow::Result;
 
 pub struct Module(Box<dyn ModuleType>);
 

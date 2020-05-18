@@ -1,4 +1,5 @@
 use crate::context::Context;
+use crate::modules::ModuleRegistry;
 
 use anyhow::Result;
 use structopt::StructOpt;
@@ -15,16 +16,26 @@ pub struct PromptOpts {
 /// Render the prompt given the provided prompt options
 pub fn render(prompt_opts: PromptOpts) -> Result<()> {
     let prompt_context = Context::new(prompt_opts);
-    let output: Vec<String>;
+    let mut module_registry = ModuleRegistry::new();
+    
+    load_modules(&mut module_registry);
 
-    {
-        use crate::modules::*;
-
-        let modules: Vec<Module> = vec![module(Directory), module(Character)];
-        output = modules.iter().filter_map(|module| module.format(&prompt_context).ok()).collect();
-    }
+    let module_list = vec!["directory", "character", "blah"];
+    let (output, errors): (Vec<_>, Vec<_>) = module_list.into_iter()
+        .map(|name| module_registry.expect_module(name))
+        .map(|module| module?.format(&prompt_context))
+        .partition(Result::is_ok);
 
     println!("{:?}", output);
+    println!("{:?}", errors);
 
     Ok(())
+}
+
+fn load_modules(module_registry: &mut ModuleRegistry) {
+    use crate::modules::*;
+    module_registry.add_modules(vec![
+        module(Directory), 
+        module(Character)
+    ]);
 }

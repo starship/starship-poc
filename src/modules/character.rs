@@ -1,6 +1,6 @@
-use anyhow::Result;
-use crate::modules::ModuleType;
 use crate::context::Context;
+use crate::modules::ModuleType;
+use anyhow::Result;
 
 pub struct Character;
 

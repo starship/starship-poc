@@ -8,8 +8,9 @@ mod context;
 mod modules;
 mod prompt;
 mod vcs;
+mod errors;
 
-pub use modules::module::{Module};
+pub use modules::module::Module;
 
 #[derive(Debug, StructOpt)]
 enum Opts {

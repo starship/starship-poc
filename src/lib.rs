@@ -5,3 +5,4 @@ mod context;
 mod modules;
 mod prompt;
 mod vcs;
+mod errors;
