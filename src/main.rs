@@ -1,16 +1,6 @@
-#[macro_use]
-extern crate anyhow;
-
 use anyhow::Result;
 use structopt::StructOpt;
-
-mod context;
-mod errors;
-mod modules;
-mod prompt;
-mod vcs;
-
-pub use modules::module::Module;
+use starship_poc::prompt;
 
 #[derive(Debug, StructOpt)]
 enum Opts {
