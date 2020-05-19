@@ -22,25 +22,24 @@ impl ModuleRegistry {
         ModuleRegistry::default()
     }
 
-    pub fn has(&self, name: &str) -> bool {
+    pub(crate) fn has(&self, name: &str) -> bool {
         self.registry.contains_key(name)
     }
 
-    pub fn get(&self, name: &str) -> Option<&Module> {
+    pub(crate) fn get(&self, name: &str) -> Option<&Module> {
         self.registry.get(name)
     }
 
-    pub fn expect_module(&self, name: &str) -> Result<&Module, ConfigError> {
-        self.registry
-            .get(name)
+    pub(crate) fn expect_module(&self, name: &str) -> Result<&Module, ConfigError> {
+        self.get(name)
             .ok_or_else(|| ConfigError::InvalidModule(name.to_string()))
     }
 
-    pub fn add_module(&mut self, module: Module) {
+    pub(crate) fn add_module(&mut self, module: Module) {
         self.registry.insert(module.name().to_string(), module);
     }
 
-    pub fn add_modules(&mut self, modules: Vec<Module>) {
+    pub(crate) fn add_modules(&mut self, modules: Vec<Module>) {
         for module in modules {
             self.add_module(module);
         }

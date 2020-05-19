@@ -1,6 +1,6 @@
 use anyhow::Result;
-use structopt::StructOpt;
 use starship_poc::prompt;
+use structopt::StructOpt;
 
 #[derive(Debug, StructOpt)]
 enum Opts {

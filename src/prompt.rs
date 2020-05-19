@@ -30,7 +30,9 @@ pub fn render(prompt_opts: PromptOpts) -> Result<()> {
     let modules: Vec<String> = modules.into_iter().map(Result::unwrap).collect();
     let errors: Vec<Error> = errors.into_iter().map(Result::unwrap_err).collect();
 
-    errors.iter().for_each(|error| println!("[!] Error: {}", error));
+    errors
+        .iter()
+        .for_each(|error| println!("[!] Error: {}", error));
     modules.iter().for_each(|module| print!("{}", module));
 
     Ok(())
