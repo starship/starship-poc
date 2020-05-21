@@ -23,21 +23,14 @@ pub fn render(prompt_opts: PromptOpts) -> Result<()> {
 
     let prompt_order = vec!["directory", "new_line", "character", "blah"];
 
-    let (modules, errors): (Vec<Result<String>>, Vec<Result<String>>) = prompt_order
+    let prepared_modules = prompt_order
         .into_par_iter()
+        // Load required module from registry
         .map(|name| module_registry.expect_module(name))
-        .map(|module| module?.format())
-        .partition(Result::is_ok);
-
-    println!("{:?}", prompt_context);
-
-    let modules: Vec<String> = modules.into_iter().map(Result::unwrap).collect();
-    let errors: Vec<Error> = errors.into_iter().map(Result::unwrap_err).collect();
-
-    errors
-        .iter()
-        .for_each(|error| println!("[!] Error: {}", error));
-    modules.iter().for_each(|module| print!("{}", module));
+        // Format module for printing
+        .map(|module| module.unwrap().prepare(&prompt_context))
+        // Print prepared modules
+        .for_each(|module| print!("{:?}", module));
 
     Ok(())
 }

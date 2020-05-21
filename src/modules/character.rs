@@ -1,6 +1,6 @@
-use crate::modules::ModuleType;
+use crate::context::Context;
+use crate::modules::{ModuleType, PreparedModule};
 
-use anyhow::Result;
 use serde::Deserialize;
 
 pub struct Character;
@@ -20,24 +20,31 @@ impl ModuleType for Character {
         "The character preceeding the prompt input"
     }
 
-    fn format(&self) -> Result<String> {
-        Ok(">".to_string())
+    fn prepare(&self, context: &Context) -> PreparedModule {
+        let config: CharacterConfig = context
+            .load_config(self)
+            .unwrap_or_else(|_| Default::default());
+
+        PreparedModule {
+            output: vec![config.symbol],
+            errors: vec![],
+        }
     }
 }
 
 #[derive(Deserialize, Debug)]
 pub struct CharacterConfig {
     #[serde(default)]
-    symbol: String,
-    #[serde(default)]
     format: String,
+    #[serde(default)]
+    symbol: String,
 }
 
 impl Default for CharacterConfig {
     fn default() -> Self {
         CharacterConfig {
-            symbol: ">".to_string(),
             format: "$symbol".to_string(),
+            symbol: "❯".to_string(),
         }
     }
 }

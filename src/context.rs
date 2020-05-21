@@ -1,5 +1,8 @@
+use crate::modules::{Module, ModuleType};
 use crate::{config, prompt, vcs};
+
 use anyhow::{Context as anyhow_context, Result};
+use serde::de;
 
 use std::env;
 use std::path::PathBuf;
@@ -7,7 +10,7 @@ use std::path::PathBuf;
 #[derive(Debug)]
 pub struct Context {
     pub current_dir: PathBuf,
-    pub vcs_instance: Option<Box<dyn vcs::Vcs>>,
+    pub vcs_instance: Option<Box<dyn vcs::Vcs + Send + Sync>>,
     pub prompt_opts: prompt::PromptOpts,
     pub prompt_config: toml::Value,
 }
@@ -26,6 +29,13 @@ impl Context {
             prompt_opts,
             prompt_config,
         }
+    }
+
+    pub fn load_config<'de, T>(&self, module: &impl ModuleType) -> Result<T, toml::de::Error>
+    where
+        T: de::Deserialize<'de>,
+    {
+        self.prompt_config.get(module.name()).unwrap().try_into()
     }
 
     fn get_current_dir() -> Result<PathBuf> {

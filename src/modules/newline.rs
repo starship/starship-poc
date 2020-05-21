@@ -1,6 +1,7 @@
 use crate::context::Context;
-use crate::modules::ModuleType;
-use anyhow::Result;
+use crate::modules::{ModuleType, PreparedModule};
+
+use serde::Deserialize;
 
 pub struct Newline;
 
@@ -13,11 +14,31 @@ impl ModuleType for Newline {
         "The line break splitting lines of the prompt"
     }
 
-    fn format(&self) -> Result<String> {
-        Ok("\n".to_string())
+    fn prepare(&self, context: &Context) -> PreparedModule {
+        let config: NewLineConfig = context
+            .load_config(self)
+            .unwrap_or_else(|_| Default::default());
+
+        PreparedModule {
+            output: vec![config.symbol],
+            errors: vec![],
+        }
     }
 }
 
-pub fn newline(_context: &Context) -> Result<String> {
-    Ok('\n'.to_string())
+#[derive(Deserialize, Debug)]
+pub struct NewLineConfig {
+    #[serde(default)]
+    format: String,
+    #[serde(default)]
+    symbol: String,
+}
+
+impl Default for NewLineConfig {
+    fn default() -> Self {
+        NewLineConfig {
+            format: "$symbol".to_string(),
+            symbol: '\n'.to_string(),
+        }
+    }
 }

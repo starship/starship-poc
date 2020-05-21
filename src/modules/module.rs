@@ -1,3 +1,5 @@
+use crate::context::Context;
+
 use anyhow::Result;
 pub struct Module(Box<dyn ModuleType>);
 
@@ -14,13 +16,17 @@ impl Module {
         self.0.is_visible()
     }
 
-    pub fn format(&self) -> Result<String> {
-        self.0.format()
+    pub fn prepare(&self, context: &Context) -> PreparedModule {
+        self.0.prepare(context)
     }
 
-    pub fn module_type(&self) -> &dyn ModuleType {
+    pub fn inner_module_type(&self) -> &dyn ModuleType {
         &*self.0
     }
+}
+
+pub fn module(module: impl ModuleType + 'static) -> Module {
+    Module(Box::new(module))
 }
 
 pub trait ModuleType: Send + Sync {
@@ -32,8 +38,17 @@ pub trait ModuleType: Send + Sync {
         true
     }
 
-    fn format(&self) -> Result<String>;
+    fn prepare(&self, context: &Context) -> PreparedModule;
 }
+
+#[derive(Debug)]
+pub struct PreparedModule {
+    // TODO: Replace with a representation of colored strings
+    output: Vec<String>,
+    errors: Vec<Box<dyn std::error::Error + Send>>,
+}
+
+pub struct ModuleOutput(Vec<String>);
 
 // pub trait ModuleConfigType where Self: ModuleConfig {
 //     fn name(&self) -> &str;
@@ -42,7 +57,3 @@ pub trait ModuleType: Send + Sync {
 
 //     }
 // }
-
-pub fn module(module: impl ModuleType + 'static) -> Module {
-    Module(Box::new(module))
-}

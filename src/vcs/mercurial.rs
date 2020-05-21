@@ -1,4 +1,4 @@
-use super::{Vcs, VcsStatus};
+use super::{Vcs, VcsStatus, VcsInstance};
 use anyhow::Result;
 use once_cell::sync::OnceCell;
 
@@ -13,7 +13,7 @@ pub struct Mercurial {
 }
 
 impl Vcs for Mercurial {
-    fn scan(path: &Path) -> Option<Box<dyn Vcs>> {
+    fn scan(path: &Path) -> Option<VcsInstance> {
         let vcs_path = path.join(".hg");
         if !vcs_path.exists() {
             log::trace!("[ ] No Mercurial repository found");
