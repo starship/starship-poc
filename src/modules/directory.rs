@@ -15,12 +15,11 @@ impl ModuleType for Directory {
         "The current working directory"
     }
 
-    fn format_string(&self) -> &str {
-        "$path"
-    }
-
-    fn format(&self, context: &Context) -> Result<String> {
-        directory(context)
+    fn format(&self) -> Result<String> {
+        Ok(std::env::current_dir()
+            .unwrap()
+            .to_string_lossy()
+            .to_string())
     }
 }
 

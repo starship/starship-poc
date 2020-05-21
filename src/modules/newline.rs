@@ -13,12 +13,8 @@ impl ModuleType for Newline {
         "The line break splitting lines of the prompt"
     }
 
-    fn format_string(&self) -> &str {
-        "$newline"
-    }
-
-    fn format(&self, context: &Context) -> Result<String> {
-        newline(context)
+    fn format(&self) -> Result<String> {
+        Ok("\n".to_string())
     }
 }
 

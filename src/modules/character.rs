@@ -1,4 +1,3 @@
-use crate::context::Context;
 use crate::modules::ModuleType;
 
 use anyhow::Result;
@@ -21,12 +20,8 @@ impl ModuleType for Character {
         "The character preceeding the prompt input"
     }
 
-    fn format_string(&self) -> &str {
-        "$char"
-    }
-
-    fn format(&self, context: &Context) -> Result<String> {
-        character(context)
+    fn format(&self) -> Result<String> {
+        Ok(">".to_string())
     }
 }
 
@@ -34,16 +29,15 @@ impl ModuleType for Character {
 pub struct CharacterConfig {
     #[serde(default)]
     symbol: String,
+    #[serde(default)]
+    format: String,
 }
 
 impl Default for CharacterConfig {
     fn default() -> Self {
         CharacterConfig {
             symbol: ">".to_string(),
+            format: "$symbol".to_string(),
         }
     }
-}
-
-pub fn character(_context: &Context) -> Result<String> {
-    Ok("❯".to_string())
 }
