@@ -1,6 +1,8 @@
 use crate::context::Context;
 use crate::modules::ModuleType;
+
 use anyhow::Result;
+use serde::Deserialize;
 
 pub struct Directory;
 
@@ -19,6 +21,18 @@ impl ModuleType for Directory {
 
     fn format(&self, context: &Context) -> Result<String> {
         directory(context)
+    }
+}
+
+#[derive(Deserialize, Debug)]
+struct DirectoryConfig {
+    #[serde(default)]
+    separator: &'static str,
+}
+
+impl Default for DirectoryConfig {
+    fn default() -> Self {
+        DirectoryConfig { separator: ">" }
     }
 }
 
