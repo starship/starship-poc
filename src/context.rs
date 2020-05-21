@@ -1,5 +1,4 @@
-use crate::prompt;
-use crate::vcs;
+use crate::{config, prompt, vcs};
 use anyhow::{Context as anyhow_context, Result};
 
 use std::env;
@@ -10,6 +9,7 @@ pub struct Context {
     pub current_dir: PathBuf,
     pub vcs_instance: Option<Box<dyn vcs::Vcs>>,
     pub prompt_opts: prompt::PromptOpts,
+    pub prompt_config: toml::Value,
 }
 
 impl Context {
@@ -17,10 +17,14 @@ impl Context {
         let current_dir = Self::get_current_dir().expect("Unable to get current directory");
         let vcs_instance = vcs::get_vcs_instance(&current_dir);
 
+        // TODO: Bubble up error from config
+        let prompt_config = config::load_config().unwrap_or_else(|_| toml::Value::from(""));
+
         Context {
             current_dir,
             vcs_instance,
             prompt_opts,
+            prompt_config,
         }
     }
 

@@ -1,4 +1,3 @@
-use crate::config::load_config;
 use crate::context::Context;
 use crate::modules::ModuleRegistry;
 
@@ -20,8 +19,7 @@ pub fn render(prompt_opts: PromptOpts) -> Result<()> {
     let mut module_registry = ModuleRegistry::new();
 
     load_modules(&mut module_registry);
-    let config = load_config(&mut module_registry)?;
-    println!("{:?}", config);
+    println!("{:?}", prompt_context);
 
     unimplemented!();
 

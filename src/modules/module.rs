@@ -1,8 +1,6 @@
 use crate::context::Context;
 use anyhow::Result;
 
-use std::collections::HashMap;
-
 pub struct Module {
     inner_module: Box<dyn ModuleType>,
     config: Option<toml::value::Table>,
@@ -42,8 +40,6 @@ pub trait ModuleType {
     fn format_string(&self) -> &str;
 
     fn format(&self, context: &Context) -> Result<String>;
-
-    // fn variables(&self) -> HashMap<String, String>;
 
     fn is_visible(&self) -> bool {
         true
