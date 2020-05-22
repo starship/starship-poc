@@ -1,24 +1,30 @@
-use crate::errors::ConfigError;
-use serde::Deserialize;
 use std::fs;
 
-pub fn load_config() -> Result<toml::Value, ConfigError> {
+pub fn load_config() -> Option<toml::Value> {
     let config_path = dirs::home_dir().unwrap().join(".config/test.toml");
 
     if config_path.exists() {
         log::debug!("Config file found: {:?}", config_path);
 
-        let config_file = fs::read_to_string(config_path).map_err(|e| {
-            log::debug!("Error reading config file: {}", e);
-            ConfigError::UnableToReadFile(e)
-        })?;
+        let config_file = match fs::read_to_string(config_path){
+            Ok(config) => config,
+            Err(e) => {
+                // TODO: Add error to stack
+                log::debug!("Error reading config file: {}", e);
+                return None;
+            }
+        };
 
-        config_file.parse::<toml::Value>().map_err(|e| {
-            log::debug!("Error parsing config file: {}", e);
-            ConfigError::InvalidToml(e)
-        })
+        match config_file.parse::<toml::Value>() {
+            Ok(toml) => Some(toml),
+            Err(e) => {
+                // TODO: Add error to stack
+                log::debug!("Error parsing config file: {}", e);
+                return None;
+            }
+        }
     } else {
         log::debug!("No config file found at {:?}", config_path);
-        Ok(toml::Value::from(""))
+        None
     }
 }

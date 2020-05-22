@@ -17,7 +17,7 @@ impl ModuleType for Newline {
     }
 
     fn prepare(&self, context: &Context) -> PreparedModule {
-        let config: NewLineConfig = context.load_config(self).unwrap_or_default();
+        let config: NewLineConfig = context.load_config(self);
 
         PreparedModule {
             output: vec![config.symbol.into()],

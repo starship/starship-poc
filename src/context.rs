@@ -12,7 +12,7 @@ pub struct Context {
     pub current_dir: PathBuf,
     pub vcs_instance: Option<Box<dyn vcs::Vcs + Send + Sync>>,
     pub prompt_opts: prompt::PromptOpts,
-    pub prompt_config: toml::Value,
+    pub prompt_config: Option<toml::Value>,
 }
 
 /// Context contains data or common functions that may be used by multiple modules.
@@ -24,8 +24,8 @@ impl Context {
         let current_dir = Self::get_current_dir().expect("Unable to get current directory");
         let vcs_instance = vcs::get_vcs_instance(&current_dir);
 
-        // TODO: Bubble up error from config
-        let prompt_config = config::load_config().unwrap_or_else(|_| toml::Value::from(""));
+        // TODO: Add error to stack
+        let prompt_config = config::load_config();
 
         Context {
             current_dir,
@@ -35,16 +35,27 @@ impl Context {
         }
     }
 
-    pub fn load_config<'de, T>(&self, module: &impl ModuleType) -> Result<T>
+    pub fn load_config<'de, T>(&self, module: &impl ModuleType) -> T
     where
-        T: de::Deserialize<'de>,
+        T: de::Deserialize<'de> + Default,
     {
-        self.prompt_config
-            .get(module.name())
-            .map(|v| v.to_owned())
-            .ok_or(anyhow!("No config provided"))?
-            .try_into()
-            .map_err(anyhow::Error::new)
+        // Extract toml map for the given module
+        let config = self.prompt_config
+        .and_then(|config| config.get(module.name()))
+        .map(|v| v.to_owned());
+        
+
+        match config {
+            Some(config) => config.try_into().unwrap_or_else(|e| {
+                // TODO: Add error to stack - Unable to parse config
+                log::debug!("Unable to parse config for {}: {}", module.name(), e);
+                Default::default()
+            }),
+            None => {
+                log::debug!("No config available for {}", module.name());
+                Default::default()
+            }
+        }
     }
 
     fn get_current_dir() -> Result<PathBuf> {

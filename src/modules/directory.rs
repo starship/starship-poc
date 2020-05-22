@@ -1,7 +1,6 @@
 use crate::context::Context;
 use crate::modules::{ModuleType, PreparedModule};
 
-use anyhow::Result;
 use serde::Deserialize;
 
 use std::borrow::Cow;
@@ -19,7 +18,7 @@ impl ModuleType for Directory {
     }
 
     fn prepare(&self, context: &Context) -> PreparedModule {
-        let config: DirectoryConfig = context.load_config(self).unwrap_or_default();
+        let config: DirectoryConfig = context.load_config(self);
         let directory_path = join_separators(&context.current_dir, config.separator.into());
 
         PreparedModule {

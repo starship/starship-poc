@@ -1,6 +1,5 @@
 use crate::context::Context;
 
-use anyhow::Result;
 pub struct Module(Box<dyn ModuleType>);
 
 impl Module {
@@ -47,13 +46,3 @@ pub struct PreparedModule {
     pub output: Vec<String>,
     pub errors: Vec<Box<dyn std::error::Error + Send>>,
 }
-
-pub struct ModuleOutput(Vec<String>);
-
-// pub trait ModuleConfigType where Self: ModuleConfig {
-//     fn name(&self) -> &str;
-
-//     fn load_config(&self) -> Result<ModuleConfig> {
-
-//     }
-// }

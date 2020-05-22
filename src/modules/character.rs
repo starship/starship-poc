@@ -15,7 +15,7 @@ impl ModuleType for Character {
     }
 
     fn prepare(&self, context: &Context) -> PreparedModule {
-        let config: CharacterConfig = context.load_config(self).unwrap_or_default();
+        let config: CharacterConfig = context.load_config(self);
 
         PreparedModule {
             output: vec![config.symbol],
