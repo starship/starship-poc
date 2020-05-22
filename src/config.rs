@@ -6,7 +6,7 @@ pub fn load_config() -> Option<toml::Value> {
     if config_path.exists() {
         log::debug!("Config file found: {:?}", config_path);
 
-        let config_file = match fs::read_to_string(config_path){
+        let config_file = match fs::read_to_string(config_path) {
             Ok(config) => config,
             Err(e) => {
                 // TODO: Add error to stack

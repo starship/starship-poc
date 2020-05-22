@@ -39,13 +39,13 @@ impl Context {
     where
         T: de::Deserialize<'de> + Default,
     {
-        // Extract toml map for the given module
-        let config = self.prompt_config
-        .and_then(|config| config.get(module.name()))
-        .map(|v| v.to_owned());
-        
+        // Extract the map associated with the module
+        let module_config = match &self.prompt_config {
+            Some(config) => config.get(module.name()).map(|v| v.to_owned()),
+            None => None,
+        };
 
-        match config {
+        match module_config {
             Some(config) => config.try_into().unwrap_or_else(|e| {
                 // TODO: Add error to stack - Unable to parse config
                 log::debug!("Unable to parse config for {}: {}", module.name(), e);
