@@ -4,6 +4,7 @@ use crate::modules::{ModuleType, PreparedModule};
 use anyhow::Result;
 use serde::Deserialize;
 
+use std::borrow::Cow;
 use std::path::PathBuf;
 
 pub struct Directory;
@@ -18,11 +19,8 @@ impl ModuleType for Directory {
     }
 
     fn prepare(&self, context: &Context) -> PreparedModule {
-        let config: DirectoryConfig = context
-            .load_config(self)
-            .unwrap_or_else(|_| Default::default());
-
-        let directory_path = join_separators(&context.current_dir, config.separator);
+        let config: DirectoryConfig = context.load_config(self).unwrap_or_default();
+        let directory_path = join_separators(&context.current_dir, config.separator.into());
 
         PreparedModule {
             output: vec![directory_path],
@@ -34,16 +32,16 @@ impl ModuleType for Directory {
 #[derive(Deserialize, Debug)]
 struct DirectoryConfig {
     #[serde(default)]
-    format: String,
+    format: Cow<'static, str>,
     #[serde(default)]
-    separator: String,
+    separator: Cow<'static, str>,
 }
 
 impl Default for DirectoryConfig {
     fn default() -> Self {
         DirectoryConfig {
-            format: "$path".to_string(),
-            separator: "/".to_string(),
+            format: "$path".into(),
+            separator: "/".into(),
         }
     }
 }

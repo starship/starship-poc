@@ -3,6 +3,8 @@ use crate::modules::{ModuleType, PreparedModule};
 
 use serde::Deserialize;
 
+use std::borrow::Cow;
+
 pub struct Newline;
 
 impl ModuleType for Newline {
@@ -15,12 +17,10 @@ impl ModuleType for Newline {
     }
 
     fn prepare(&self, context: &Context) -> PreparedModule {
-        let config: NewLineConfig = context
-            .load_config(self)
-            .unwrap_or_else(|_| Default::default());
+        let config: NewLineConfig = context.load_config(self).unwrap_or_default();
 
         PreparedModule {
-            output: vec![config.symbol],
+            output: vec![config.symbol.into()],
             errors: vec![],
         }
     }
@@ -29,16 +29,16 @@ impl ModuleType for Newline {
 #[derive(Deserialize, Debug)]
 pub struct NewLineConfig {
     #[serde(default)]
-    format: String,
+    format: Cow<'static, str>,
     #[serde(default)]
-    symbol: String,
+    symbol: Cow<'static, str>,
 }
 
 impl Default for NewLineConfig {
     fn default() -> Self {
         NewLineConfig {
-            format: "$symbol".to_string(),
-            symbol: '\n'.to_string(),
+            format: "$symbol".into(),
+            symbol: "\n".into(),
         }
     }
 }

@@ -15,7 +15,11 @@ pub struct Context {
     pub prompt_config: toml::Value,
 }
 
+/// Context contains data or common functions that may be used by multiple modules.
+/// The data contained within Context will be relevant to this particular rendering
+/// of the prompt.
 impl Context {
+    /// Create a new instance of context given a set of prompt options
     pub fn new(prompt_opts: prompt::PromptOpts) -> Self {
         let current_dir = Self::get_current_dir().expect("Unable to get current directory");
         let vcs_instance = vcs::get_vcs_instance(&current_dir);
@@ -31,11 +35,16 @@ impl Context {
         }
     }
 
-    pub fn load_config<'de, T>(&self, module: &impl ModuleType) -> Result<T, toml::de::Error>
+    pub fn load_config<'de, T>(&self, module: &impl ModuleType) -> Result<T>
     where
         T: de::Deserialize<'de>,
     {
-        self.prompt_config.get(module.name()).unwrap().try_into()
+        self.prompt_config
+            .get(module.name())
+            .map(|v| v.to_owned())
+            .ok_or(anyhow!("No config provided"))?
+            .try_into()
+            .map_err(anyhow::Error::new)
     }
 
     fn get_current_dir() -> Result<PathBuf> {

@@ -2,9 +2,6 @@ use crate::errors::ConfigError;
 use serde::Deserialize;
 use std::fs;
 
-#[derive(Deserialize, Default, Debug)]
-pub struct PromptConfig {}
-
 pub fn load_config() -> Result<toml::Value, ConfigError> {
     let config_path = dirs::home_dir().unwrap().join(".config/test.toml");
 

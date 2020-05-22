@@ -5,12 +5,6 @@ use serde::Deserialize;
 
 pub struct Character;
 
-impl Character {
-    pub fn load_config(&self, config: CharacterConfig) -> CharacterConfig {
-        config
-    }
-}
-
 impl ModuleType for Character {
     fn name(&self) -> &str {
         "character"
@@ -21,9 +15,7 @@ impl ModuleType for Character {
     }
 
     fn prepare(&self, context: &Context) -> PreparedModule {
-        let config: CharacterConfig = context
-            .load_config(self)
-            .unwrap_or_else(|_| Default::default());
+        let config: CharacterConfig = context.load_config(self).unwrap_or_default();
 
         PreparedModule {
             output: vec![config.symbol],

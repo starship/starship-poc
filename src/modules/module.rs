@@ -44,8 +44,8 @@ pub trait ModuleType: Send + Sync {
 #[derive(Debug)]
 pub struct PreparedModule {
     // TODO: Replace with a representation of colored strings
-    output: Vec<String>,
-    errors: Vec<Box<dyn std::error::Error + Send>>,
+    pub output: Vec<String>,
+    pub errors: Vec<Box<dyn std::error::Error + Send>>,
 }
 
 pub struct ModuleOutput(Vec<String>);
