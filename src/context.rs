@@ -1,4 +1,4 @@
-use crate::modules::{Module, ModuleType};
+use crate::modules::ModuleType;
 use crate::{config, prompt, vcs};
 
 use anyhow::{Context as anyhow_context, Result};
@@ -25,7 +25,7 @@ impl Context {
         let vcs_instance = vcs::get_vcs_instance(&current_dir);
 
         // TODO: Add error to stack
-        let prompt_config = config::load_config();
+        let prompt_config = config::load_prompt_config();
 
         Context {
             current_dir,

@@ -1,7 +1,7 @@
 use crate::context::Context;
 use crate::modules::ModuleRegistry;
 
-use anyhow::{Error, Result};
+use anyhow::Result;
 use rayon::prelude::*;
 use structopt::StructOpt;
 

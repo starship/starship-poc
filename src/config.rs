@@ -1,6 +1,6 @@
 use std::fs;
 
-pub fn load_config() -> Option<toml::Value> {
+pub fn load_prompt_config() -> Option<toml::Value> {
     let config_path = dirs::home_dir().unwrap().join(".config/test.toml");
 
     if config_path.exists() {
