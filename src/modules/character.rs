@@ -1,5 +1,6 @@
 use crate::context::Context;
-use crate::modules::{ModuleType, PreparedModule};
+use crate::modules::{ModuleType, PreparedModule, ModuleSegment};
+use crate::style::{Color};
 
 use serde::Deserialize;
 
@@ -17,10 +18,10 @@ impl ModuleType for Character {
     fn prepare(&self, context: &Context) -> PreparedModule {
         let config: CharacterConfig = context.load_config(self);
 
-        PreparedModule {
-            output: vec![config.symbol],
-            errors: vec![],
-        }
+        PreparedModule(vec![ModuleSegment {
+            style: Color::Green.into(),
+            text: config.symbol.into()
+        }])
     }
 }
 

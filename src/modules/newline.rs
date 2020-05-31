@@ -1,5 +1,6 @@
 use crate::context::Context;
-use crate::modules::{ModuleType, PreparedModule};
+use crate::modules::{ModuleType, PreparedModule, ModuleSegment};
+use crate::style::{Style};
 
 use serde::Deserialize;
 
@@ -19,10 +20,10 @@ impl ModuleType for Newline {
     fn prepare(&self, context: &Context) -> PreparedModule {
         let config: NewLineConfig = context.load_config(self);
 
-        PreparedModule {
-            output: vec![config.symbol.into()],
-            errors: vec![],
-        }
+        PreparedModule(vec![ModuleSegment {
+            style: Style::default(),
+            text: config.symbol.into()
+        }])
     }
 }
 

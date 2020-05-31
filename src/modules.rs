@@ -5,7 +5,7 @@ pub(crate) mod newline;
 
 pub(crate) use character::Character;
 pub(crate) use directory::Directory;
-pub(crate) use module::{module, Module, ModuleType, PreparedModule};
+pub(crate) use module::{module, Module, ModuleType, PreparedModule, ModuleSegment};
 pub(crate) use newline::Newline;
 
 use crate::error::ConfigError;

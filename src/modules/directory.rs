@@ -1,5 +1,6 @@
 use crate::context::Context;
-use crate::modules::{ModuleType, PreparedModule};
+use crate::modules::{ModuleType, PreparedModule, ModuleSegment};
+use crate::style::{Color};
 
 use serde::Deserialize;
 
@@ -21,10 +22,10 @@ impl ModuleType for Directory {
         let config: DirectoryConfig = context.load_config(self);
         let directory_path = join_separators(&context.current_dir, config.separator.into());
 
-        PreparedModule {
-            output: vec![directory_path],
-            errors: vec![],
-        }
+        PreparedModule(vec![ModuleSegment {
+            style: Color::Cyan.into(),
+            text: directory_path
+        }])
     }
 }
 

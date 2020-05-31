@@ -1,4 +1,5 @@
 use crate::context::Context;
+use crate::style::Style;
 
 pub struct Module(Box<dyn ModuleType>);
 
@@ -41,8 +42,10 @@ pub trait ModuleType: Send + Sync {
 }
 
 #[derive(Debug)]
-pub struct PreparedModule {
-    // TODO: Replace with a representation of colored strings
-    pub output: Vec<String>,
-    pub errors: Vec<Box<dyn std::error::Error + Send>>,
+pub struct PreparedModule(pub Vec<ModuleSegment>);
+
+#[derive(Debug)]
+pub struct ModuleSegment {
+    pub style: Style,
+    pub text: String,
 }

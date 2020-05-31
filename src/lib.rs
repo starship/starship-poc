@@ -10,3 +10,4 @@ pub mod error;
 pub mod modules;
 pub mod prompt;
 pub mod vcs;
+pub mod style;
