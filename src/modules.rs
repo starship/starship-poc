@@ -8,7 +8,7 @@ pub(crate) use directory::Directory;
 pub(crate) use module::{module, Module, ModuleType, PreparedModule};
 pub(crate) use newline::Newline;
 
-use crate::errors::ConfigError;
+use crate::error::ConfigError;
 use anyhow::Result;
 use std::collections::HashMap;
 

@@ -1,5 +1,7 @@
 use std::fs;
 
+use crate::error::ERROR_QUEUE;
+
 pub fn load_prompt_config() -> Option<toml::Value> {
     let config_path = dirs::home_dir().unwrap().join(".config/test.toml");
 
@@ -9,8 +11,7 @@ pub fn load_prompt_config() -> Option<toml::Value> {
         let config_file = match fs::read_to_string(config_path) {
             Ok(config) => config,
             Err(e) => {
-                // TODO: Add error to stack
-                log::debug!("Error reading config file: {}", e);
+                ERROR_QUEUE.push(e);
                 return None;
             }
         };
@@ -18,8 +19,7 @@ pub fn load_prompt_config() -> Option<toml::Value> {
         match config_file.parse::<toml::Value>() {
             Ok(toml) => Some(toml),
             Err(e) => {
-                // TODO: Add error to stack
-                log::debug!("Error parsing config file: {}", e);
+                ERROR_QUEUE.push(e);
                 return None;
             }
         }
