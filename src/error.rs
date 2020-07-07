@@ -20,7 +20,7 @@ impl ErrorQueue {
     }
 }
 
-pub fn new<E: Into<Error>>(error: E) {
+pub fn queue<E: Into<Error>>(error: E) {
     ERROR_QUEUE.push(error);
 }
 

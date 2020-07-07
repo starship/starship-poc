@@ -49,7 +49,7 @@ impl Context {
         match module_config {
             Some(config) => config.try_into().unwrap_or_else(|e| {
                 log::error!("Unable to parse config for {}: {}", module.name(), e);
-                error::new(ConfigError::UnableToParseModuleConfig { source: e });
+                error::queue(ConfigError::UnableToParseModuleConfig { source: e });
                 Default::default()
             }),
             None => {

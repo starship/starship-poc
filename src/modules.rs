@@ -31,7 +31,7 @@ impl ModuleRegistry {
 
     pub(crate) fn expect_module(&self, name: &str) -> Option<&Module> {
         self.get(name).or_else(|| {
-            error::new(ConfigError::InvalidModule(name.to_string()));
+            error::queue(ConfigError::InvalidModule(name.to_string()));
             None
         })
     }
