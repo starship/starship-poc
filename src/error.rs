@@ -1,7 +1,6 @@
 use anyhow::Error;
 use thiserror::Error as ThisError;
 
-use std::error::Error as StdError;
 use std::sync::{Arc, Mutex};
 
 lazy_static! {
@@ -12,21 +11,17 @@ lazy_static! {
 pub struct ErrorQueue(Arc<Mutex<Vec<Error>>>);
 
 impl ErrorQueue {
-    pub fn push<E>(&self, error: E)
-    where
-        E: StdError + Send + Sync + 'static,
-    {
+    pub fn push<E: Into<Error>>(&self, error: E) {
+        let error = error.into();
         log::error!("{}", error);
         let queue = Arc::clone(&self.0);
         let mut queue = queue.lock().unwrap();
-        queue.push(Error::new(error));
+        queue.push(error);
     }
 }
 
-pub fn push(error: Error) {
-    let errors = Arc::clone(&ERROR_QUEUE.0);
-    let mut errors = errors.lock().unwrap();
-    errors.push(error);
+pub fn new<E: Into<Error>>(error: E) {
+    ERROR_QUEUE.push(error);
 }
 
 #[derive(ThisError, Debug)]
@@ -40,4 +35,7 @@ pub enum ConfigError {
 
     #[error("invalid TOML in config file")]
     InvalidToml(#[from] toml::de::Error),
+
+    #[error(transparent)]
+    Other(#[from] anyhow::Error)
 }

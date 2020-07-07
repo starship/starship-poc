@@ -1,6 +1,6 @@
 use crate::modules::ModuleType;
 use crate::{config, prompt, vcs};
-use crate::error::ERROR_QUEUE;
+use crate::error;
 
 use anyhow::{Context as anyhow_context, Result};
 use serde::de;
@@ -49,7 +49,7 @@ impl Context {
         match module_config {
             Some(config) => config.try_into().unwrap_or_else(|e| {
                 log::error!("Unable to parse config for {}: {}", module.name(), e);
-                ERROR_QUEUE.push(e);
+                error::new(e);
                 Default::default()
             }),
             None => {
