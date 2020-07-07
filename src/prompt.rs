@@ -26,9 +26,9 @@ pub fn render(prompt_opts: PromptOpts) -> Result<()> {
     let prepared_modules = prompt_order
         .into_par_iter()
         // Load required module from registry
-        .map(|name| module_registry.expect_module(name))
+        .filter_map(|name| module_registry.expect_module(name))
         // Format module for printing
-        .map(|module| module.unwrap().prepare(&prompt_context))
+        .map(|module| module.prepare(&prompt_context))
         // Print prepared modules
         .for_each(|module| print!("{:?}", module));
 

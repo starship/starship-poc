@@ -8,7 +8,7 @@ pub(crate) use directory::Directory;
 pub(crate) use module::{module, Module, ModuleType, PreparedModule, ModuleSegment};
 pub(crate) use newline::Newline;
 
-use crate::error::ConfigError;
+use crate::error::{self, ConfigError};
 use anyhow::Result;
 use std::collections::HashMap;
 
@@ -30,9 +30,11 @@ impl ModuleRegistry {
         self.registry.get(name)
     }
 
-    pub(crate) fn expect_module(&self, name: &str) -> Result<&Module, ConfigError> {
-        self.get(name)
-            .ok_or_else(|| ConfigError::InvalidModule(name.to_string()))
+    pub(crate) fn expect_module(&self, name: &str) -> Option<&Module> {
+        self.get(name).or_else(|| {
+            error::new(ConfigError::InvalidModule(name.to_string()));
+            None
+        })
     }
 
     pub(crate) fn add_module(&mut self, module: Module) {
