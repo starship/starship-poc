@@ -9,7 +9,6 @@ pub(crate) use module::{module, Module, ModuleType, PreparedModule, ModuleSegmen
 pub(crate) use newline::Newline;
 
 use crate::error::{self, ConfigError};
-use anyhow::Result;
 use std::collections::HashMap;
 
 #[derive(Default)]
