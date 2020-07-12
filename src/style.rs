@@ -4,7 +4,7 @@
 /// # Examples
 ///
 /// ```
-/// use ansi_term::{Style, Color};
+/// use crate::style::{Style, Color};
 ///
 /// let style = Style::new().bold().on(Color::Black);
 /// println!("{}", style.paint("Bold on black"));
@@ -36,7 +36,7 @@ impl Style {
     /// # Examples
     ///
     /// ```
-    /// use ansi_term::Style;
+    /// use crate::style::Style;
     ///
     /// let style = Style::new();
     /// println!("{}", style.paint("hi"));
@@ -50,7 +50,7 @@ impl Style {
     /// # Examples
     ///
     /// ```
-    /// use ansi_term::Style;
+    /// use crate::style::Style;
     ///
     /// let style = Style::new().bold();
     /// println!("{}", style.paint("hey"));
@@ -67,7 +67,7 @@ impl Style {
     /// # Examples
     ///
     /// ```
-    /// use ansi_term::Style;
+    /// use crate::style::Style;
     ///
     /// let style = Style::new().dimmed();
     /// println!("{}", style.paint("sup"));
@@ -84,7 +84,7 @@ impl Style {
     /// # Examples
     ///
     /// ```
-    /// use ansi_term::Style;
+    /// use crate::style::Style;
     ///
     /// let style = Style::new().italic();
     /// println!("{}", style.paint("greetings"));
@@ -101,7 +101,7 @@ impl Style {
     /// # Examples
     ///
     /// ```
-    /// use ansi_term::Style;
+    /// use crate::style::Style;
     ///
     /// let style = Style::new().underline();
     /// println!("{}", style.paint("salutations"));
@@ -118,7 +118,7 @@ impl Style {
     /// # Examples
     ///
     /// ```
-    /// use ansi_term::{Style, Color};
+    /// use crate::style::{Style, Color};
     ///
     /// let style = Style::new().fg(Color::Yellow);
     /// println!("{}", style.paint("hi"));
@@ -135,7 +135,7 @@ impl Style {
     /// # Examples
     ///
     /// ```
-    /// use ansi_term::{Style, Color};
+    /// use crate::style::{Style, Color};
     ///
     /// let style = Style::new().on(Color::Blue);
     /// println!("{}", style.paint("eyyyy"));
@@ -153,7 +153,7 @@ impl Style {
     /// # Examples
     ///
     /// ```
-    /// use ansi_term::Style;
+    /// use crate::style::Style;
     ///
     /// assert_eq!(true,  Style::default().is_plain());
     /// assert_eq!(false, Style::default().bold().is_plain());
@@ -228,7 +228,7 @@ impl Color {
     /// # Examples
     ///
     /// ```
-    /// use ansi_term::Color;
+    /// use crate::style::Color;
     ///
     /// let style = Color::Red.normal();
     /// println!("{}", style.paint("hi"));
@@ -246,7 +246,7 @@ impl Color {
     /// # Examples
     ///
     /// ```
-    /// use ansi_term::Color;
+    /// use crate::style::Color;
     ///
     /// let style = Color::Green.bold();
     /// println!("{}", style.paint("hey"));
@@ -265,7 +265,7 @@ impl Color {
     /// # Examples
     ///
     /// ```
-    /// use ansi_term::Color;
+    /// use crate::style::Color;
     ///
     /// let style = Color::Yellow.dimmed();
     /// println!("{}", style.paint("sup"));
@@ -284,7 +284,7 @@ impl Color {
     /// # Examples
     ///
     /// ```
-    /// use ansi_term::Color;
+    /// use crate::style::Color;
     ///
     /// let style = Color::Blue.italic();
     /// println!("{}", style.paint("greetings"));
@@ -303,7 +303,7 @@ impl Color {
     /// # Examples
     ///
     /// ```
-    /// use ansi_term::Color;
+    /// use crate::style::Color;
     ///
     /// let style = Color::Purple.underline();
     /// println!("{}", style.paint("salutations"));
@@ -322,7 +322,7 @@ impl Color {
     /// # Examples
     ///
     /// ```
-    /// use ansi_term::Color;
+    /// use crate::style::Color;
     ///
     /// let style = Color::RGB(31, 31, 31).on(Color::White);
     /// println!("{}", style.paint("eyyyy"));
