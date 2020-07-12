@@ -11,7 +11,6 @@
 /// ```
 #[derive(Default, Debug, PartialEq, Clone, Copy)]
 pub struct Style {
-
     /// The style's foreground color, if it has one.
     pub foreground: Option<Color>,
 
@@ -57,7 +56,10 @@ impl Style {
     /// println!("{}", style.paint("hey"));
     /// ```
     pub fn bold(&self) -> Style {
-        Style { is_bold: true, .. *self }
+        Style {
+            is_bold: true,
+            ..*self
+        }
     }
 
     /// Returns a `Style` with the dimmed property set.
@@ -71,7 +73,10 @@ impl Style {
     /// println!("{}", style.paint("sup"));
     /// ```
     pub fn dimmed(&self) -> Style {
-        Style { is_dimmed: true, .. *self }
+        Style {
+            is_dimmed: true,
+            ..*self
+        }
     }
 
     /// Returns a `Style` with the italic property set.
@@ -85,7 +90,10 @@ impl Style {
     /// println!("{}", style.paint("greetings"));
     /// ```
     pub fn italic(&self) -> Style {
-        Style { is_italicized: true, .. *self }
+        Style {
+            is_italicized: true,
+            ..*self
+        }
     }
 
     /// Returns a `Style` with the underline property set.
@@ -99,10 +107,13 @@ impl Style {
     /// println!("{}", style.paint("salutations"));
     /// ```
     pub fn underline(&self) -> Style {
-        Style { is_underlined: true, .. *self }
+        Style {
+            is_underlined: true,
+            ..*self
+        }
     }
 
-        /// Returns a `Style` with the foreground color property set.
+    /// Returns a `Style` with the foreground color property set.
     ///
     /// # Examples
     ///
@@ -113,7 +124,10 @@ impl Style {
     /// println!("{}", style.paint("hi"));
     /// ```
     pub fn fg(&self, foreground: Color) -> Style {
-        Style { foreground: Some(foreground), .. *self }
+        Style {
+            foreground: Some(foreground),
+            ..*self
+        }
     }
 
     /// Returns a `Style` with the background color property set.
@@ -127,7 +141,10 @@ impl Style {
     /// println!("{}", style.paint("eyyyy"));
     /// ```
     pub fn on(&self, background: Color) -> Style {
-        Style { background: Some(background), .. *self }
+        Style {
+            background: Some(background),
+            ..*self
+        }
     }
 
     /// Return true if this `Style` has no actual styles, and can be written
@@ -217,7 +234,10 @@ impl Color {
     /// println!("{}", style.paint("hi"));
     /// ```
     pub fn normal(self) -> Style {
-        Style { foreground: Some(self), .. Style::default() }
+        Style {
+            foreground: Some(self),
+            ..Style::default()
+        }
     }
 
     /// Returns a `Style` with the foreground color set to this color and the
@@ -232,7 +252,11 @@ impl Color {
     /// println!("{}", style.paint("hey"));
     /// ```
     pub fn bold(self) -> Style {
-        Style { foreground: Some(self), is_bold: true, .. Style::default() }
+        Style {
+            foreground: Some(self),
+            is_bold: true,
+            ..Style::default()
+        }
     }
 
     /// Returns a `Style` with the foreground color set to this color and the
@@ -247,7 +271,11 @@ impl Color {
     /// println!("{}", style.paint("sup"));
     /// ```
     pub fn dimmed(self) -> Style {
-        Style { foreground: Some(self), is_dimmed: true, .. Style::default() }
+        Style {
+            foreground: Some(self),
+            is_dimmed: true,
+            ..Style::default()
+        }
     }
 
     /// Returns a `Style` with the foreground color set to this color and the
@@ -262,7 +290,11 @@ impl Color {
     /// println!("{}", style.paint("greetings"));
     /// ```
     pub fn italic(self) -> Style {
-        Style { foreground: Some(self), is_italicized: true, .. Style::default() }
+        Style {
+            foreground: Some(self),
+            is_italicized: true,
+            ..Style::default()
+        }
     }
 
     /// Returns a `Style` with the foreground color set to this color and the
@@ -277,7 +309,11 @@ impl Color {
     /// println!("{}", style.paint("salutations"));
     /// ```
     pub fn underline(self) -> Style {
-        Style { foreground: Some(self), is_underlined: true, .. Style::default() }
+        Style {
+            foreground: Some(self),
+            is_underlined: true,
+            ..Style::default()
+        }
     }
 
     /// Returns a `Style` with the foreground color set to this color and the
@@ -292,7 +328,11 @@ impl Color {
     /// println!("{}", style.paint("eyyyy"));
     /// ```
     pub fn on(self, background: Color) -> Style {
-        Style { foreground: Some(self), background: Some(background), .. Style::default() }
+        Style {
+            foreground: Some(self),
+            background: Some(background),
+            ..Style::default()
+        }
     }
 }
 

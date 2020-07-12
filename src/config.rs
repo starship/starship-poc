@@ -11,9 +11,9 @@ pub fn load_prompt_config() -> Option<toml::Value> {
         let config_file = match fs::read_to_string(&config_path) {
             Ok(config) => config,
             Err(error) => {
-                error::queue(ConfigError::UnableToReadFile{ 
+                error::queue(ConfigError::UnableToReadFile {
                     file_path: config_path,
-                    source: error
+                    source: error,
                 });
                 return None;
             }
@@ -22,7 +22,7 @@ pub fn load_prompt_config() -> Option<toml::Value> {
         match config_file.parse::<toml::Value>() {
             Ok(toml) => Some(toml),
             Err(error) => {
-                error::queue(ConfigError::InvalidToml{ source: error });
+                error::queue(ConfigError::InvalidToml { source: error });
                 return None;
             }
         }

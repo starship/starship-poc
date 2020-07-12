@@ -1,6 +1,6 @@
 use crate::context::Context;
-use crate::modules::{ModuleType, PreparedModule, ModuleSegment};
-use crate::style::{Color};
+use crate::modules::{ModuleSegment, ModuleType, PreparedModule};
+use crate::style::Color;
 
 use serde::Deserialize;
 
@@ -24,7 +24,7 @@ impl ModuleType for Directory {
 
         PreparedModule(vec![ModuleSegment {
             style: Color::Cyan.into(),
-            text: directory_path
+            text: directory_path,
         }])
     }
 }

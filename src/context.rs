@@ -1,6 +1,6 @@
+use crate::error::{self, ConfigError};
 use crate::modules::ModuleType;
 use crate::{config, prompt, vcs};
-use crate::error::{self, ConfigError};
 
 use anyhow::{Context as anyhow_context, Result};
 use serde::de;

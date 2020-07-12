@@ -1,6 +1,6 @@
 use crate::context::Context;
-use crate::modules::{ModuleType, PreparedModule, ModuleSegment};
-use crate::style::{Style};
+use crate::modules::{ModuleSegment, ModuleType, PreparedModule};
+use crate::style::Style;
 
 use serde::Deserialize;
 
@@ -22,7 +22,7 @@ impl ModuleType for Newline {
 
         PreparedModule(vec![ModuleSegment {
             style: Style::default(),
-            text: config.symbol.into()
+            text: config.symbol.into(),
         }])
     }
 }

@@ -31,14 +31,14 @@ pub enum ConfigError {
     InvalidModule(String),
 
     #[error("unable to read config file: {file_path}")]
-    UnableToReadFile { 
+    UnableToReadFile {
         file_path: std::path::PathBuf,
-        source: std::io::Error 
+        source: std::io::Error,
     },
 
     #[error("invalid TOML in config file")]
-    InvalidToml{ source: toml::de::Error },
+    InvalidToml { source: toml::de::Error },
 
     #[error("unable to parse module config")]
-    UnableToParseModuleConfig{ source: toml::de::Error },
+    UnableToParseModuleConfig { source: toml::de::Error },
 }
