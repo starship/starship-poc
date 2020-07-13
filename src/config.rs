@@ -23,7 +23,7 @@ pub fn load_prompt_config() -> Option<toml::Value> {
             Ok(toml) => Some(toml),
             Err(error) => {
                 error::queue(ConfigError::InvalidToml { source: error });
-                return None;
+                None
             }
         }
     } else {
