@@ -1,14 +1,5 @@
 /// A style is a collection of properties that can format a string
 /// using ANSI escape codes.
-///
-/// # Examples
-///
-/// ```
-/// use crate::style::{Style, Color};
-///
-/// let style = Style::new().bold().on(Color::Black);
-/// println!("{}", style.paint("Bold on black"));
-/// ```
 #[derive(Default, Debug, PartialEq, Clone, Copy)]
 pub struct Style {
     /// The style's foreground color, if it has one.
@@ -32,29 +23,11 @@ pub struct Style {
 
 impl Style {
     /// Creates a new Style with no properties set.
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use crate::style::Style;
-    ///
-    /// let style = Style::new();
-    /// println!("{}", style.paint("hi"));
-    /// ```
     pub fn new() -> Style {
         Style::default()
     }
 
     /// Returns a `Style` with the bold property set.
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use crate::style::Style;
-    ///
-    /// let style = Style::new().bold();
-    /// println!("{}", style.paint("hey"));
-    /// ```
     pub fn bold(&self) -> Style {
         Style {
             is_bold: true,
@@ -63,15 +36,6 @@ impl Style {
     }
 
     /// Returns a `Style` with the dimmed property set.
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use crate::style::Style;
-    ///
-    /// let style = Style::new().dimmed();
-    /// println!("{}", style.paint("sup"));
-    /// ```
     pub fn dimmed(&self) -> Style {
         Style {
             is_dimmed: true,
@@ -80,15 +44,6 @@ impl Style {
     }
 
     /// Returns a `Style` with the italic property set.
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use crate::style::Style;
-    ///
-    /// let style = Style::new().italic();
-    /// println!("{}", style.paint("greetings"));
-    /// ```
     pub fn italic(&self) -> Style {
         Style {
             is_italicized: true,
@@ -97,15 +52,6 @@ impl Style {
     }
 
     /// Returns a `Style` with the underline property set.
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use crate::style::Style;
-    ///
-    /// let style = Style::new().underline();
-    /// println!("{}", style.paint("salutations"));
-    /// ```
     pub fn underline(&self) -> Style {
         Style {
             is_underlined: true,
@@ -114,15 +60,6 @@ impl Style {
     }
 
     /// Returns a `Style` with the foreground color property set.
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use crate::style::{Style, Color};
-    ///
-    /// let style = Style::new().fg(Color::Yellow);
-    /// println!("{}", style.paint("hi"));
-    /// ```
     pub fn fg(&self, foreground: Color) -> Style {
         Style {
             foreground: Some(foreground),
@@ -131,15 +68,6 @@ impl Style {
     }
 
     /// Returns a `Style` with the background color property set.
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use crate::style::{Style, Color};
-    ///
-    /// let style = Style::new().on(Color::Blue);
-    /// println!("{}", style.paint("eyyyy"));
-    /// ```
     pub fn on(&self, background: Color) -> Style {
         Style {
             background: Some(background),
@@ -149,15 +77,6 @@ impl Style {
 
     /// Return true if this `Style` has no actual styles, and can be written
     /// without any control characters.
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use crate::style::Style;
-    ///
-    /// assert_eq!(true,  Style::default().is_plain());
-    /// assert_eq!(false, Style::default().bold().is_plain());
-    /// ```
     pub fn is_plain(self) -> bool {
         self == Style::default()
     }
@@ -224,15 +143,6 @@ pub enum Color {
 
 impl Color {
     /// Returns a `Style` with the foreground color set to this color.
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use crate::style::Color;
-    ///
-    /// let style = Color::Red.normal();
-    /// println!("{}", style.paint("hi"));
-    /// ```
     pub fn normal(self) -> Style {
         Style {
             foreground: Some(self),
@@ -242,15 +152,6 @@ impl Color {
 
     /// Returns a `Style` with the foreground color set to this color and the
     /// bold property set.
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use crate::style::Color;
-    ///
-    /// let style = Color::Green.bold();
-    /// println!("{}", style.paint("hey"));
-    /// ```
     pub fn bold(self) -> Style {
         Style {
             foreground: Some(self),
@@ -261,15 +162,6 @@ impl Color {
 
     /// Returns a `Style` with the foreground color set to this color and the
     /// dimmed property set.
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use crate::style::Color;
-    ///
-    /// let style = Color::Yellow.dimmed();
-    /// println!("{}", style.paint("sup"));
-    /// ```
     pub fn dimmed(self) -> Style {
         Style {
             foreground: Some(self),
@@ -280,15 +172,6 @@ impl Color {
 
     /// Returns a `Style` with the foreground color set to this color and the
     /// italic property set.
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use crate::style::Color;
-    ///
-    /// let style = Color::Blue.italic();
-    /// println!("{}", style.paint("greetings"));
-    /// ```
     pub fn italic(self) -> Style {
         Style {
             foreground: Some(self),
@@ -299,15 +182,6 @@ impl Color {
 
     /// Returns a `Style` with the foreground color set to this color and the
     /// underline property set.
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use crate::style::Color;
-    ///
-    /// let style = Color::Purple.underline();
-    /// println!("{}", style.paint("salutations"));
-    /// ```
     pub fn underline(self) -> Style {
         Style {
             foreground: Some(self),
@@ -318,15 +192,6 @@ impl Color {
 
     /// Returns a `Style` with the foreground color set to this color and the
     /// background color property set to the given color.
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use crate::style::Color;
-    ///
-    /// let style = Color::RGB(31, 31, 31).on(Color::White);
-    /// println!("{}", style.paint("eyyyy"));
-    /// ```
     pub fn on(self, background: Color) -> Style {
         Style {
             foreground: Some(self),
