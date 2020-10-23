@@ -59,7 +59,7 @@ jobs:
           args: --release --all-features --no-fail-fast --lib -- --nocapture
 
       - name: Cleanup | Clean cache
-          run: |
+        run: |
             cargo install cargo-cache --no-default-features --features ci-autoclean
             cargo-cache
 
@@ -116,6 +116,6 @@ jobs:
           args: --target ${{ matrix.target }} --release --all-features --no-fail-fast --lib -- --nocapture
 
       - name: Cleanup | Clean cache
-          run: |
+        run: |
             cargo install cargo-cache --no-default-features --features ci-autoclean
             cargo-cache
