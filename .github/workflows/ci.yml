@@ -1,143 +1,121 @@
+name: CI
+
 on: [push, pull_request]
 
-name: Continuous integration
-
 jobs:
-  check:
-    name: Check
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v2
-      - uses: actions-rs/toolchain@v1
-        with:
-          profile: minimal
-          toolchain: stable
-          override: true
-      - uses: actions-rs/cargo@v1
-        with:
-          command: check
-
   test:
-    name: Test
-    runs-on: ${{ matrix.os }}
     strategy:
+      fail-fast: false
       matrix:
         os:
           - ubuntu-latest
-          - macOS-latest
+          - macOS-latest 
           - windows-latest
-    steps:
-      - uses: actions/checkout@v2
-      - uses: actions-rs/toolchain@v1
-        with:
-          profile: minimal
-          toolchain: stable
-          override: true
-      - uses: actions-rs/cargo@v1
-        with:
-          command: test
+        version:
+          - stable
+          - nightly
 
-  test-cross:
-    name: Test (Cross)
-    runs-on: ${{ matrix.target }}
-    strategy:
-      matrix:
-        target:
-          - aarch64-linux-android
-          - aarch64-unknown-linux-gnu
-          - aarch64-unknown-linux-musl
-          - armv7-unknown-linux-gnueabihf
-          - armv7-unknown-linux-musleabihf
-          - i686-unknown-linux-gnu
-          - i686-unknown-linux-musl
-          - x86_64-linux-android
-          - x86_64-unknown-linux-gnu
-          - x86_64-unknown-linux-musl
+    name: Test ${{ matrix.os }} ${{ matrix.version }}
+    runs-on: ${{ matrix.os }} 
+
     steps:
-      - uses: actions/checkout@v2
-      - uses: actions-rs/toolchain@v1
+      - name: Setup | Checkout
+        uses: actions/checkout@v2
+
+      - name: Setup | Rust Toolchain
+        uses: actions-rs/toolchain@v1
         with:
-          toolchain: stable
-          target: ${{ matrix.target }}
+          toolchain: ${{ matrix.version }} 
+          profile: minimal
           override: true
-      - uses: actions-rs/cargo@v1
+          default: true
+
+      - name: Setup | Generate Cargo.lock
+        uses: actions-rs/cargo@v1
+        with:
+          command: generate-lockfile
+
+      - name: Setup | Cache Build
+        uses: actions/cache@v2
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ matrix.os }}-${{ matrix.version }}-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Build | Check
+        uses: actions-rs/cargo@v1
+        with:
+          use-cross: true
+          command: check
+          args: --release --all --bins --examples --tests --all-features
+
+      - name: Build | Test
+        uses: actions-rs/cargo@v1
         with:
           use-cross: true
           command: test
-          args: --target ${{ matrix.target }}
+          args: --release --all-features --no-fail-fast --lib -- --nocapture
 
-  coverage:
-    name: Test Coverage
-    runs-on: ${{ matrix.os }}
+      - name: Cleanup | Clean cache
+          run: |
+            cargo install cargo-cache --no-default-features --features ci-autoclean
+            cargo-cache
+
+  test-cross:
     strategy:
+      fail-fast: false
       matrix:
-        os:
-          - ubuntu-latest
-          - macOS-latest
-          - windows-latest
+        target:
+          - aarch64-unknown-linux-gnu
+          - armv7-unknown-linux-gnueabihf
+
+    name: Test ${{ matrix.target }}
+    runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v2
+      - name: Setup | Checkout
+        uses: actions/checkout@v2
 
-      - name: Install toolchain
+      - name: Setup | Rust Toolchain [${{ matrix.target }}]
         uses: actions-rs/toolchain@v1
         with:
-          toolchain: nightly
-          override: true
+          toolchain: stable
+          target: ${{ matrix.target }}
           profile: minimal
+          override: true
+          default: true
 
-      - name: Execute tests
+      - name: Setup | Generate Cargo.lock
         uses: actions-rs/cargo@v1
         with:
+          command: generate-lockfile
+
+      - name: Setup | Cache Build
+        uses: actions/cache@v2
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ matrix.target }}-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Build | Check
+        uses: actions-rs/cargo@v1
+        with:
+          use-cross: true
+          command: check
+          args: --target ${{ matrix.target }} --release --all --bins --examples --tests --all-features
+
+      - name: Build | Test
+        uses: actions-rs/cargo@v1
+        with:
+          use-cross: true
           command: test
-          args: --all
-        env:
-          CARGO_INCREMENTAL: 0
-          RUSTFLAGS: "-Zprofile -Ccodegen-units=1 -Cinline-threshold=0 -Clink-dead-code -Coverflow-checks=off -Cpanic=abort -Zpanic_abort_tests"
+          args: --target ${{ matrix.target }} --release --all-features --no-fail-fast --lib -- --nocapture
 
-      - name: Pre-installing grcov
-        uses: actions-rs/install@v0.1
-        with:
-          crate: grcov
-          use-tool-cache: true
-
-      - name: Gather coverage data
-        id: coverage
-        uses: actions-rs/grcov@v0.1
-
-      - name: Upload to Codecov
-        uses: codecov/codecov-action@v1
-        with:
-          file: ${{ steps.coverage.outputs.report }}
-
-  fmt:
-    name: Rustfmt
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v2
-      - uses: actions-rs/toolchain@v1
-        with:
-          profile: minimal
-          toolchain: stable
-          override: true
-      - run: rustup component add rustfmt
-      - uses: actions-rs/cargo@v1
-        with:
-          command: fmt
-          args: --all -- --check
-
-  clippy:
-    name: Clippy
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v2
-      - uses: actions-rs/toolchain@v1
-        with:
-          profile: minimal
-          toolchain: stable
-          override: true
-      - run: rustup component add clippy
-      - uses: actions-rs/cargo@v1
-        with:
-          command: clippy
-          args: -- -D warnings
+      - name: Cleanup | Clean cache
+          run: |
+            cargo install cargo-cache --no-default-features --features ci-autoclean
+            cargo-cache
