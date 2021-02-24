@@ -4,7 +4,7 @@ use thiserror::Error as ThisError;
 use std::sync::{Arc, Mutex};
 
 lazy_static! {
-    pub static ref ERROR_QUEUE: ErrorQueue = Default::default();
+    pub static ref ERROR_QUEUE: ErrorQueue = ErrorQueue::default();
 }
 
 #[derive(Default, Debug)]
@@ -37,8 +37,5 @@ pub enum ConfigError {
     },
 
     #[error("invalid TOML in config file")]
-    InvalidToml { source: toml::de::Error },
-
-    #[error("unable to parse module config")]
-    UnableToParseModuleConfig { source: toml::de::Error },
+    InvalidToml(#[from] toml::de::Error),
 }

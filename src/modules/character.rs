@@ -1,7 +1,9 @@
+use std::borrow::Cow;
+
 use crate::context::Context;
 use crate::modules::{ModuleSegment, ModuleType, PreparedModule};
-use crate::style::Color;
 
+use ansi_term::Color;
 use serde::Deserialize;
 
 pub struct Character;
@@ -28,16 +30,16 @@ impl ModuleType for Character {
 #[derive(Deserialize, Debug)]
 pub struct CharacterConfig {
     #[serde(default)]
-    format: String,
+    format: Cow<'static, str>,
     #[serde(default)]
-    symbol: String,
+    symbol: Cow<'static, str>,
 }
 
 impl Default for CharacterConfig {
     fn default() -> Self {
         CharacterConfig {
-            format: "$symbol".to_string(),
-            symbol: "❯".to_string(),
+            format: "$symbol".into(),
+            symbol: "❯".into(),
         }
     }
 }

@@ -1,7 +1,7 @@
 use crate::context::Context;
 use crate::modules::{ModuleSegment, ModuleType, PreparedModule};
-use crate::style::Style;
 
+use ansi_term::Style;
 use serde::Deserialize;
 
 use std::borrow::Cow;

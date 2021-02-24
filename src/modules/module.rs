@@ -1,5 +1,8 @@
+use std::fmt::Display;
+
 use crate::context::Context;
-use crate::style::Style;
+
+use ansi_term::Style;
 
 pub struct Module(Box<dyn ModuleType>);
 
@@ -29,7 +32,7 @@ pub fn module(module: impl ModuleType + 'static) -> Module {
     Module(Box::new(module))
 }
 
-pub trait ModuleType: Send + Sync {
+pub trait ModuleType {
     fn name(&self) -> &str;
 
     fn description(&self) -> &str;
@@ -42,10 +45,20 @@ pub trait ModuleType: Send + Sync {
 }
 
 #[derive(Debug)]
-pub struct PreparedModule(pub Vec<ModuleSegment>);
-
-#[derive(Debug)]
 pub struct ModuleSegment {
     pub style: Style,
     pub text: String,
+}
+
+#[derive(Debug)]
+pub struct PreparedModule(pub Vec<ModuleSegment>);
+
+impl Display for PreparedModule {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        for module in &self.0 {
+            let formatted_text = module.style.paint(&module.text);
+            write!(f, "{}", formatted_text)?;
+        }
+        Ok(())
+    }
 }

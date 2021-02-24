@@ -1,11 +1,10 @@
 use crate::context::Context;
 use crate::modules::{ModuleSegment, ModuleType, PreparedModule};
-use crate::style::Color;
 
+use ansi_term::Color;
 use serde::Deserialize;
 
-use std::borrow::Cow;
-use std::path::PathBuf;
+use std::{borrow::Cow, path::Path};
 
 pub struct Directory;
 
@@ -20,7 +19,7 @@ impl ModuleType for Directory {
 
     fn prepare(&self, context: &Context) -> PreparedModule {
         let config: DirectoryConfig = context.load_config(self);
-        let directory_path = join_separators(&context.current_dir, config.separator.into());
+        let directory_path = join_separators(&context.current_dir, &config.separator);
 
         PreparedModule(vec![ModuleSegment {
             style: Color::Cyan.into(),
@@ -46,9 +45,10 @@ impl Default for DirectoryConfig {
     }
 }
 
-pub fn join_separators(path: &PathBuf, separator: String) -> String {
-    path.iter()
-        .map(|s| s.to_string_lossy().to_string())
-        .collect::<Vec<String>>()
-        .join(&separator)
+pub fn join_separators(path: impl AsRef<Path>, separator: impl AsRef<str>) -> String {
+    path.as_ref()
+        .iter()
+        .map(|s| s.to_string_lossy())
+        .collect::<Vec<Cow<str>>>()
+        .join(separator.as_ref())
 }

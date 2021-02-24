@@ -2,7 +2,6 @@ use crate::context::Context;
 use crate::modules::ModuleRegistry;
 
 use anyhow::Result;
-use rayon::prelude::*;
 use structopt::StructOpt;
 
 use std::fmt::Debug;
@@ -24,13 +23,13 @@ pub fn render(prompt_opts: PromptOpts) -> Result<()> {
     let prompt_order = vec!["directory", "new_line", "character"];
 
     let prepared_modules = prompt_order
-        .into_par_iter()
+        .iter()
         // Load required module from registry
         .filter_map(|name| module_registry.expect_module(name))
         // Format module for printing
         .map(|module| module.prepare(&prompt_context))
         // Print prepared modules
-        .for_each(|module| print!("{:?}", module));
+        .for_each(|module| print!("{}", module));
 
     Ok(())
 }

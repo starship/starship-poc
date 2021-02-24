@@ -12,9 +12,7 @@ use crate::error::{self, ConfigError};
 use std::collections::HashMap;
 
 #[derive(Default)]
-pub struct ModuleRegistry {
-    registry: HashMap<String, Module>,
-}
+pub struct ModuleRegistry(HashMap<String, Module>);
 
 impl ModuleRegistry {
     pub fn new() -> ModuleRegistry {
@@ -22,11 +20,11 @@ impl ModuleRegistry {
     }
 
     pub(crate) fn has(&self, name: &str) -> bool {
-        self.registry.contains_key(name)
+        self.0.contains_key(name)
     }
 
     pub(crate) fn get(&self, name: &str) -> Option<&Module> {
-        self.registry.get(name)
+        self.0.get(name)
     }
 
     pub(crate) fn expect_module(&self, name: &str) -> Option<&Module> {
@@ -37,7 +35,7 @@ impl ModuleRegistry {
     }
 
     pub(crate) fn add_module(&mut self, module: Module) {
-        self.registry.insert(module.name().to_string(), module);
+        self.0.insert(module.name().to_string(), module);
     }
 
     pub(crate) fn add_modules(&mut self, modules: Vec<Module>) {

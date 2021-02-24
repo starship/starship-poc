@@ -3,7 +3,9 @@ use std::fs;
 use crate::error::{self, ConfigError};
 
 pub fn load_prompt_config() -> Option<toml::Value> {
-    let config_path = dirs::home_dir().unwrap().join(".config/starship-poc.toml");
+    let config_path = dirs::home_dir()
+        .expect("unable to access home directory")
+        .join(".config/starship-poc.toml");
 
     if config_path.exists() {
         log::debug!("Config file found: {:?}", &config_path);
@@ -22,7 +24,7 @@ pub fn load_prompt_config() -> Option<toml::Value> {
         match config_file.parse::<toml::Value>() {
             Ok(toml) => Some(toml),
             Err(error) => {
-                error::queue(ConfigError::InvalidToml { source: error });
+                error::queue(ConfigError::InvalidToml(error));
                 None
             }
         }

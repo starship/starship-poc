@@ -9,5 +9,4 @@ pub mod context;
 pub mod error;
 pub mod modules;
 pub mod prompt;
-pub mod style;
 pub mod vcs;

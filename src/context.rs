@@ -1,6 +1,9 @@
-use crate::error::{self, ConfigError};
 use crate::modules::ModuleType;
 use crate::{config, prompt, vcs};
+use crate::{
+    error::{self, ConfigError},
+    vcs::VcsInstance,
+};
 
 use anyhow::{Context as anyhow_context, Result};
 use serde::de;
@@ -11,7 +14,7 @@ use std::path::PathBuf;
 #[derive(Debug)]
 pub struct Context {
     pub current_dir: PathBuf,
-    pub vcs_instance: Option<Box<dyn vcs::Vcs + Send + Sync>>,
+    pub vcs_instance: Option<VcsInstance>,
     pub prompt_opts: prompt::PromptOpts,
     pub prompt_config: Option<toml::Value>,
 }
@@ -48,7 +51,7 @@ impl Context {
         match module_config {
             Some(config) => config.try_into().unwrap_or_else(|e| {
                 log::error!("Unable to parse config for {}: {}", module.name(), e);
-                error::queue(ConfigError::UnableToParseModuleConfig { source: e });
+                error::queue(ConfigError::InvalidToml(e));
                 Default::default()
             }),
             None => {

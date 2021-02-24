@@ -8,7 +8,7 @@ pub use git::Git;
 pub mod mercurial;
 pub use mercurial::Mercurial;
 
-pub type VcsInstance = Box<dyn Vcs + Send + Sync>;
+pub type VcsInstance = Box<dyn Vcs>;
 
 /// A trait for the ability to be used a version control system
 pub trait Vcs: Debug {
