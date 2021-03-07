@@ -1,5 +1,5 @@
 use crate::context::Context;
-use crate::modules::ModuleRegistry;
+use crate::modules::{ModuleRegistry, PreparedModule};
 
 use anyhow::Result;
 use structopt::StructOpt;
@@ -28,8 +28,15 @@ pub fn render(prompt_opts: PromptOpts) -> Result<()> {
         .filter_map(|name| module_registry.expect_module(name))
         // Format module for printing
         .map(|module| module.prepare(&prompt_context))
-        // Print prepared modules
-        .for_each(|module| print!("{}", module));
+        .collect::<Vec<PreparedModule>>();
+
+    for module in &prepared_modules {
+        println!("{:9} - {:?}", module.metadata.name, module.duration);
+    }
+
+    for module in &prepared_modules {
+        print!("{}", module);
+    }
 
     Ok(())
 }

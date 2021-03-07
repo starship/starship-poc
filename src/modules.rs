@@ -5,7 +5,7 @@ pub(crate) mod newline;
 
 pub(crate) use character::Character;
 pub(crate) use directory::Directory;
-pub(crate) use module::{module, Module, ModuleSegment, ModuleType, PreparedModule};
+pub(crate) use module::*;
 pub(crate) use newline::Newline;
 
 use crate::error::{self, ConfigError};
@@ -35,7 +35,7 @@ impl ModuleRegistry {
     }
 
     pub(crate) fn add_module(&mut self, module: Module) {
-        self.0.insert(module.name().to_string(), module);
+        self.0.insert(module.metadata().name, module);
     }
 
     pub(crate) fn add_modules(&mut self, modules: Vec<Module>) {

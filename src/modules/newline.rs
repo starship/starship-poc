@@ -1,5 +1,5 @@
 use crate::context::Context;
-use crate::modules::{ModuleSegment, ModuleType, PreparedModule};
+use crate::modules::{Metadata, ModuleSegment, ModuleType};
 
 use ansi_term::Style;
 use serde::Deserialize;
@@ -9,21 +9,20 @@ use std::borrow::Cow;
 pub struct Newline;
 
 impl ModuleType for Newline {
-    fn name(&self) -> &str {
-        "new_line"
+    fn metadata(&self) -> Metadata {
+        Metadata {
+            name: "new_line".to_string(),
+            description: "The line break splitting lines of the prompt".to_string(),
+        }
     }
 
-    fn description(&self) -> &str {
-        "The line break splitting lines of the prompt"
-    }
-
-    fn prepare(&self, context: &Context) -> PreparedModule {
+    fn prepare(&self, context: &Context) -> Vec<ModuleSegment> {
         let config: NewLineConfig = context.load_config(self);
 
-        PreparedModule(vec![ModuleSegment {
+        vec![ModuleSegment {
             style: Style::default(),
             text: config.symbol.into(),
-        }])
+        }]
     }
 }
 

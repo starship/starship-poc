@@ -1,4 +1,7 @@
-use std::fmt::Display;
+use std::{
+    fmt::Display,
+    time::{Duration, Instant},
+};
 
 use crate::context::Context;
 
@@ -7,12 +10,8 @@ use ansi_term::Style;
 pub struct Module(Box<dyn ModuleType>);
 
 impl Module {
-    pub fn name(&self) -> &str {
-        self.0.name()
-    }
-
-    pub fn description(&self) -> &str {
-        self.0.description()
+    pub fn metadata(&self) -> Metadata {
+        self.0.metadata()
     }
 
     pub fn is_visible(&self) -> bool {
@@ -20,7 +19,15 @@ impl Module {
     }
 
     pub fn prepare(&self, context: &Context) -> PreparedModule {
-        self.0.prepare(context)
+        let start = Instant::now();
+        let module_segments = self.0.prepare(context);
+        let duration = start.elapsed();
+
+        PreparedModule {
+            metadata: self.0.metadata(),
+            segments: module_segments,
+            duration,
+        }
     }
 
     pub fn inner_module_type(&self) -> &dyn ModuleType {
@@ -32,16 +39,20 @@ pub fn module(module: impl ModuleType + 'static) -> Module {
     Module(Box::new(module))
 }
 
-pub trait ModuleType {
-    fn name(&self) -> &str;
+#[derive(Debug)]
+pub struct Metadata {
+    pub name: String,
+    pub description: String,
+}
 
-    fn description(&self) -> &str;
+pub trait ModuleType {
+    fn metadata(&self) -> Metadata;
 
     fn is_visible(&self) -> bool {
         true
     }
 
-    fn prepare(&self, context: &Context) -> PreparedModule;
+    fn prepare(&self, context: &Context) -> Vec<ModuleSegment>;
 }
 
 #[derive(Debug)]
@@ -51,12 +62,16 @@ pub struct ModuleSegment {
 }
 
 #[derive(Debug)]
-pub struct PreparedModule(pub Vec<ModuleSegment>);
+pub struct PreparedModule {
+    pub metadata: Metadata,
+    pub segments: Vec<ModuleSegment>,
+    pub duration: Duration,
+}
 
 impl Display for PreparedModule {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        for module in &self.0 {
-            let formatted_text = module.style.paint(&module.text);
+        for segment in &self.segments {
+            let formatted_text = segment.style.paint(&segment.text);
             write!(f, "{}", formatted_text)?;
         }
         Ok(())

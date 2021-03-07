@@ -1,5 +1,5 @@
 use crate::context::Context;
-use crate::modules::{ModuleSegment, ModuleType, PreparedModule};
+use crate::modules::{Metadata, ModuleSegment, ModuleType};
 
 use ansi_term::Color;
 use serde::Deserialize;
@@ -9,22 +9,21 @@ use std::{borrow::Cow, path::Path};
 pub struct Directory;
 
 impl ModuleType for Directory {
-    fn name(&self) -> &str {
-        "directory"
+    fn metadata(&self) -> Metadata {
+        Metadata {
+            name: "directory".to_string(),
+            description: "The current working directory".to_string(),
+        }
     }
 
-    fn description(&self) -> &str {
-        "The current working directory"
-    }
-
-    fn prepare(&self, context: &Context) -> PreparedModule {
+    fn prepare(&self, context: &Context) -> Vec<ModuleSegment> {
         let config: DirectoryConfig = context.load_config(self);
         let directory_path = join_separators(&context.current_dir, &config.separator);
 
-        PreparedModule(vec![ModuleSegment {
+        vec![ModuleSegment {
             style: Color::Cyan.into(),
             text: directory_path,
-        }])
+        }]
     }
 }
 

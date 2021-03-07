@@ -44,18 +44,22 @@ impl Context {
     {
         // Extract the map associated with the module
         let module_config = match &self.prompt_config {
-            Some(config) => config.get(module.name()).map(|v| v.to_owned()),
+            Some(config) => config.get(module.metadata().name).map(|v| v.to_owned()),
             None => None,
         };
 
         match module_config {
             Some(config) => config.try_into().unwrap_or_else(|e| {
-                log::error!("Unable to parse config for {}: {}", module.name(), e);
+                log::error!(
+                    "Unable to parse config for {}: {}",
+                    module.metadata().name,
+                    e
+                );
                 error::queue(ConfigError::InvalidToml(e));
                 Default::default()
             }),
             None => {
-                log::debug!("No config available for {}", module.name());
+                log::debug!("No config available for {}", module.metadata().name);
                 Default::default()
             }
         }
