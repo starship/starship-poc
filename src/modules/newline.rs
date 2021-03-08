@@ -4,8 +4,6 @@ use crate::modules::{Metadata, ModuleSegment, ModuleType};
 use ansi_term::Style;
 use serde::Deserialize;
 
-use std::borrow::Cow;
-
 pub struct Newline;
 
 impl ModuleType for Newline {
@@ -21,7 +19,7 @@ impl ModuleType for Newline {
 
         vec![ModuleSegment {
             style: Style::default(),
-            text: config.symbol.into(),
+            text: config.symbol,
         }]
     }
 }
@@ -29,16 +27,16 @@ impl ModuleType for Newline {
 #[derive(Deserialize, Debug)]
 pub struct NewLineConfig {
     #[serde(default)]
-    format: Cow<'static, str>,
+    format: String,
     #[serde(default)]
-    symbol: Cow<'static, str>,
+    symbol: String,
 }
 
 impl Default for NewLineConfig {
     fn default() -> Self {
         NewLineConfig {
-            format: "$symbol".into(),
-            symbol: "\n".into(),
+            format: "$symbol".to_string(),
+            symbol: "\n".to_string(),
         }
     }
 }

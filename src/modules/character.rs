@@ -1,5 +1,3 @@
-use std::borrow::Cow;
-
 use crate::context::Context;
 use crate::modules::{Metadata, ModuleSegment, ModuleType};
 
@@ -21,7 +19,7 @@ impl ModuleType for Character {
 
         vec![ModuleSegment {
             style: Color::Green.into(),
-            text: config.symbol.into(),
+            text: config.symbol,
         }]
     }
 }
@@ -29,16 +27,16 @@ impl ModuleType for Character {
 #[derive(Deserialize, Debug)]
 pub struct CharacterConfig {
     #[serde(default)]
-    format: Cow<'static, str>,
+    format: String,
     #[serde(default)]
-    symbol: Cow<'static, str>,
+    symbol: String,
 }
 
 impl Default for CharacterConfig {
     fn default() -> Self {
         CharacterConfig {
-            format: "$symbol".into(),
-            symbol: "❯".into(),
+            format: "$symbol".to_string(),
+            symbol: "❯".to_string(),
         }
     }
 }

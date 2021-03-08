@@ -4,7 +4,7 @@ use crate::modules::{Metadata, ModuleSegment, ModuleType};
 use ansi_term::Color;
 use serde::Deserialize;
 
-use std::{borrow::Cow, path::Path};
+use std::path::Path;
 
 pub struct Directory;
 
@@ -30,9 +30,9 @@ impl ModuleType for Directory {
 #[derive(Deserialize, Debug)]
 struct DirectoryConfig {
     #[serde(default)]
-    format: Cow<'static, str>,
+    format: String,
     #[serde(default)]
-    separator: Cow<'static, str>,
+    separator: String,
 }
 
 impl Default for DirectoryConfig {
@@ -47,7 +47,7 @@ impl Default for DirectoryConfig {
 pub fn join_separators(path: impl AsRef<Path>, separator: impl AsRef<str>) -> String {
     path.as_ref()
         .iter()
-        .map(|s| s.to_string_lossy())
-        .collect::<Vec<Cow<str>>>()
+        .map(|s| s.to_string_lossy().to_string())
+        .collect::<Vec<String>>()
         .join(separator.as_ref())
 }

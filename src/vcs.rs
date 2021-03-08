@@ -27,11 +27,11 @@ pub trait Vcs: Debug {
     fn branch(&self) -> Result<&String>;
 
     /// Determine the status of a VCS system of the project root.
-    fn status(&self) -> Result<&VcsStatus>;
+    fn status(&self) -> Result<&Status>;
 }
 
 #[derive(Default, Debug, PartialEq)]
-pub struct VcsStatus {
+pub struct Status {
     untracked: u8,
     added: u8,
     modified: u8,

@@ -1,4 +1,4 @@
-use super::{Vcs, VcsInstance, VcsStatus};
+use super::{Vcs, VcsInstance, Status};
 use anyhow::Result;
 use once_cell::sync::OnceCell;
 
@@ -9,7 +9,7 @@ pub struct Mercurial {
     hg_dir: PathBuf,
     root_dir: PathBuf,
     branch: OnceCell<String>,
-    status: OnceCell<VcsStatus>,
+    status: OnceCell<Status>,
 }
 
 impl Vcs for Mercurial {
@@ -37,7 +37,7 @@ impl Vcs for Mercurial {
         self.branch.get_or_try_init(|| self.hg_branch())
     }
 
-    fn status(&self) -> Result<&VcsStatus> {
+    fn status(&self) -> Result<&Status> {
         self.status.get_or_try_init(|| self.hg_status())
     }
 }
@@ -47,7 +47,7 @@ impl Mercurial {
         unimplemented!()
     }
 
-    fn hg_status(&self) -> Result<VcsStatus> {
+    fn hg_status(&self) -> Result<Status> {
         unimplemented!()
     }
 }
