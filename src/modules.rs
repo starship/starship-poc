@@ -2,11 +2,15 @@ pub(crate) mod character;
 pub(crate) mod directory;
 pub(crate) mod module;
 pub(crate) mod newline;
+pub(crate) mod rust;
+pub(crate) mod node;
 
 pub(crate) use character::Character;
 pub(crate) use directory::Directory;
 pub(crate) use module::*;
 pub(crate) use newline::Newline;
+pub(crate) use rust::Rust;
+pub(crate) use node::Node;
 
 use crate::error::{self, ConfigError};
 use std::collections::HashMap;
