@@ -20,7 +20,7 @@ pub fn render(prompt_opts: PromptOpts) -> Result<()> {
     let mut module_registry = ModuleRegistry::new();
     add_modules_to_registry(&mut module_registry);
 
-    let prompt_order = vec!["directory", "new_line", "character"];
+    let prompt_order = vec!["directory", "rust", "node", "new_line", "character"];
 
     let prepared_modules = prompt_order
         .iter()
@@ -43,5 +43,12 @@ pub fn render(prompt_opts: PromptOpts) -> Result<()> {
 
 fn add_modules_to_registry(module_registry: &mut ModuleRegistry) {
     use crate::modules::*;
-    module_registry.add_modules(vec![module(Directory), module(Character), module(Newline)]);
+
+    module_registry.add_modules(vec![
+        module(Directory),
+        module(Character),
+        module(Newline),
+        module(Rust),
+        module(Node),
+    ]);
 }

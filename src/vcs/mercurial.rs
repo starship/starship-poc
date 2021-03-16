@@ -1,4 +1,4 @@
-use super::{Vcs, VcsInstance, Status};
+use super::{Status, Vcs, VcsInstance};
 use anyhow::Result;
 use once_cell::sync::OnceCell;
 

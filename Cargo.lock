@@ -140,6 +140,26 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmd_lib"
+version = "0.12.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "92677f503dad1d8401f7af6323ae23c455cc749e93c8bb6a1fbdd04977338c26"
+dependencies = [
+ "cmd_lib_macros",
+]
+
+[[package]]
+name = "cmd_lib_macros"
+version = "0.12.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0dbc6fd724b5e8d2a3c9360eb8cdfc02a32870136ac8ae18bdfacffb6f03b2bb"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn",
+]
+
+[[package]]
 name = "constant_time_eq"
 version = "0.1.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -660,6 +680,7 @@ dependencies = [
  "ansi_term 0.12.1",
  "anyhow",
  "clap",
+ "cmd_lib",
  "criterion",
  "dirs",
  "lazy_static",
@@ -670,6 +691,7 @@ dependencies = [
  "structopt",
  "thiserror",
  "toml",
+ "which-rs",
 ]
 
 [[package]]
@@ -900,6 +922,12 @@ dependencies = [
  "js-sys",
  "wasm-bindgen",
 ]
+
+[[package]]
+name = "which-rs"
+version = "0.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2106af9c33b718e9ded8f564dfdeec3285707a4c333c1838294ddbea5de3b888"
 
 [[package]]
 name = "winapi"

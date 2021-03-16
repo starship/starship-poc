@@ -34,7 +34,7 @@ pub struct CharacterConfig {
 
 impl Default for CharacterConfig {
     fn default() -> Self {
-        CharacterConfig {
+        Self {
             format: "$symbol".to_string(),
             symbol: "❯".to_string(),
         }

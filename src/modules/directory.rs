@@ -37,7 +37,7 @@ struct DirectoryConfig {
 
 impl Default for DirectoryConfig {
     fn default() -> Self {
-        DirectoryConfig {
+        Self {
             format: "$path".into(),
             separator: "/".into(),
         }
