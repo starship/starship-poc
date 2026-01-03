@@ -1,7 +1,7 @@
 use anyhow::{Context, Result};
 use directories::UserDirs;
 use serde::{Deserialize, Serialize};
-use std::path::PathBuf;
+use std::{borrow::Cow, path::PathBuf};
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct ShellContext {
@@ -39,7 +39,6 @@ impl Prompt {
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct Module {
-    pub name: String,
-    pub output: String,
+    pub name: Cow<'static, str>,
+    pub output: Cow<'static, str>,
 }
-
