@@ -15,5 +15,8 @@ starship-common = { workspace = true }
 divan = "0.1"
 
 [[bench]]
-name = "full_flow"
+name = "prompt"
 harness = false
+
+[lints]
+workspace = true

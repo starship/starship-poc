@@ -8,6 +8,7 @@ use starship_common::{socket_path, Module, Prompt, ShellContext};
 
 fn main() -> Result<()> {
     init_tracing();
+
     let socket_path = socket_path()?;
 
     let _ = std::fs::remove_file(&socket_path);

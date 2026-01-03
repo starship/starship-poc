@@ -13,3 +13,9 @@ starship-common = { path = "crates/common" }
 
 [profile.release]
 debug = 1
+
+[workspace.lints.clippy]
+all = { level = "warn", priority = -1 }
+pedantic = { level = "warn", priority = -1 }
+nursery = { level = "warn", priority = -1 }
+cargo = { level = "warn", priority = -1 }
