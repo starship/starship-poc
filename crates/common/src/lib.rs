@@ -3,7 +3,7 @@ use directories::UserDirs;
 use serde::{Deserialize, Serialize};
 use std::{borrow::Cow, path::PathBuf};
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Clone, Serialize, Deserialize, Debug)]
 pub struct ShellContext {
     pub pwd: Option<PathBuf>,
     pub user: Option<String>,
