@@ -4,12 +4,12 @@ use std::{
 };
 
 use anyhow::{Context, Result};
-use starship_common::{Module, Prompt, ShellContext, socket_path};
+use starship_common::{Module, Prompt, ShellContext, get_socket_path};
 
 fn main() -> Result<()> {
     init_tracing();
 
-    let socket_path = socket_path()?;
+    let socket_path = get_socket_path()?;
 
     let _ = std::fs::remove_file(&socket_path);
     let listener = UnixListener::bind(&socket_path)

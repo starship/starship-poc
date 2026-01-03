@@ -9,7 +9,7 @@ pub struct ShellContext {
     pub user: Option<String>,
 }
 
-pub fn socket_path() -> Result<PathBuf> {
+pub fn get_socket_path() -> Result<PathBuf> {
     let user_dirs = UserDirs::new().with_context(|| "Failed to get user directories")?;
     let config_dir = user_dirs.home_dir().join(".config");
     let socket_path = config_dir.join("starship/starship.sock");
@@ -26,15 +26,10 @@ pub struct Prompt {
 impl Prompt {
     #[must_use]
     pub fn render(&self) -> String {
-        let mut output = String::new();
-        for module in &self.left {
-            output.push_str(&module.output);
-        }
-        output.push(' ');
-        for module in &self.right {
-            output.push_str(&module.output);
-        }
-        output
+        let left_output: String = self.left.iter().map(|m| m.output.as_ref()).collect();
+        let right_output: String = self.right.iter().map(|m| m.output.as_ref()).collect();
+
+        format!("{left_output} {right_output}")
     }
 }
 

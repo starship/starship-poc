@@ -1,12 +1,12 @@
 use std::{io::{BufRead, BufReader, Write}, os::unix::net::UnixStream};
 
 use anyhow::{Context, Result};
-use starship_common::{Prompt, ShellContext, socket_path};
+use starship_common::{Prompt, ShellContext, get_socket_path};
 
 fn main() -> Result<()> {
-    let socket_path = socket_path()?;
+    let socket_path = get_socket_path()?;
     let mut stream = UnixStream::connect(&socket_path)
-        .with_context(|| format!("failed to connect to daemon at {:?}", &socket_path))?;
+        .with_context(|| format!("failed to connect to daemon at {}", socket_path.display()))?;
 
     // Send the shell context to the daemon
     let shell_context = construct_shell_context();
