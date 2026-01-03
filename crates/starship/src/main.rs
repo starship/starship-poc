@@ -1,7 +1,6 @@
 use std::{io::{BufRead, BufReader, Write}, os::unix::net::UnixStream};
 
 use anyhow::{Context, Result};
-use serde_json;
 use starship_common::{Prompt, ShellContext, socket_path};
 
 fn main() -> Result<()> {
@@ -12,7 +11,7 @@ fn main() -> Result<()> {
     // Send the shell context to the daemon
     let shell_context = construct_shell_context();
     let request_json = serde_json::to_string(&shell_context)?;
-    writeln!(stream, "{}", request_json)?;
+    writeln!(stream, "{request_json}")?;
     stream.flush()?;
 
     // Receive the response from the daemon

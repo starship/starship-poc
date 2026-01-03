@@ -1,5 +1,6 @@
 [package]
 name = "starship-common"
+description = "Common code for the Starship prompt"
 version = "0.1.0"
 edition = "2024"
 

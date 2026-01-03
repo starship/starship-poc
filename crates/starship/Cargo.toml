@@ -1,5 +1,6 @@
 [package]
 name = "starship"
+description = "The CLI for the Starship prompt"
 version = "0.1.0"
 edition = "2024"
 

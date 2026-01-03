@@ -4,7 +4,7 @@ use std::{
 };
 
 use anyhow::{Context, Result};
-use starship_common::{socket_path, Module, Prompt, ShellContext};
+use starship_common::{Module, Prompt, ShellContext, socket_path};
 
 fn main() -> Result<()> {
     init_tracing();
@@ -13,7 +13,7 @@ fn main() -> Result<()> {
 
     let _ = std::fs::remove_file(&socket_path);
     let listener = UnixListener::bind(&socket_path)
-        .with_context(|| format!("failed to bind to socket: {:?}", &socket_path))?;
+        .with_context(|| format!("failed to bind to socket: {}", socket_path.display()))?;
     tracing::info!("Listening on {:?}", &socket_path);
 
     for stream in listener.incoming() {
@@ -44,7 +44,7 @@ fn handle_client(stream: &mut UnixStream) -> Result<()> {
         let context: ShellContext =
             serde_json::from_str(&line).context("Failed to parse request")?;
 
-        let response = handle_request(context)?;
+        let response = handle_request(context);
         serde_json::to_writer(&mut *stream, &response)?;
         stream.write_all(b"\n")?;
         stream.flush()?;
@@ -53,7 +53,7 @@ fn handle_client(stream: &mut UnixStream) -> Result<()> {
     Ok(())
 }
 
-fn handle_request(context: ShellContext) -> Result<Prompt> {
+fn handle_request(context: ShellContext) -> Prompt {
     let user = context.user.unwrap_or_default();
     let pwd = context
         .pwd
@@ -61,7 +61,7 @@ fn handle_request(context: ShellContext) -> Result<Prompt> {
         .to_string_lossy()
         .to_string();
 
-    let prompt = Prompt {
+    Prompt {
         left: vec![
             Module {
                 name: "user".into(),
@@ -73,8 +73,7 @@ fn handle_request(context: ShellContext) -> Result<Prompt> {
             },
         ],
         right: vec![],
-    };
-    Ok(prompt)
+    }
 }
 
 fn init_tracing() {

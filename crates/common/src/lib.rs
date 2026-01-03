@@ -24,12 +24,13 @@ pub struct Prompt {
 }
 
 impl Prompt {
+    #[must_use]
     pub fn render(&self) -> String {
         let mut output = String::new();
         for module in &self.left {
             output.push_str(&module.output);
         }
-        output.push_str(" ");
+        output.push(' ');
         for module in &self.right {
             output.push_str(&module.output);
         }
