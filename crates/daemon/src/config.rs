@@ -1,4 +1,4 @@
-use anyhow::Result;
+use anyhow::{Result, anyhow};
 use mlua::{Lua, LuaOptions, LuaSerdeExt, StdLib};
 use serde::{Deserialize, Serialize};
 use starship_common::{ShellContext, get_config_dir};
@@ -44,10 +44,11 @@ impl ConfigLoader {
         // Update the context and run the cached config function
         self.lua.globals().set("ctx", self.lua.to_value(context)?)?;
 
+        // Run the cached config function
         let returned_value = self
             .cached_func
             .as_ref()
-            .expect("cached function should be set")
+            .ok_or_else(|| anyhow!("cached function should be set"))?
             .call(())?;
 
         let config = self.lua.from_value(returned_value)?;
