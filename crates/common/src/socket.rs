@@ -1,14 +1,15 @@
+use crate::get_config_dir;
 use anyhow::{Context, Result};
-use directories::UserDirs;
-use tracing::instrument;
 use std::{
-    fs, os::unix::net::{UnixListener, UnixStream}, path::PathBuf
+    fs,
+    os::unix::net::{UnixListener, UnixStream},
+    path::PathBuf,
 };
+use tracing::instrument;
 
 fn get_socket_path() -> Result<PathBuf> {
-    let user_dirs = UserDirs::new().with_context(|| "Failed to get user directories")?;
-    let config_dir = user_dirs.home_dir().join(".config");
-    let socket_path = config_dir.join("starship/starship.sock");
+    let config_dir = get_config_dir()?;
+    let socket_path = config_dir.join("starship.sock");
 
     Ok(socket_path)
 }

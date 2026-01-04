@@ -1,18 +1,17 @@
-use anyhow::{Context, Result};
-use starship_common::{Module, Prompt, ShellContext, socket};
-use std::{
-    io::{BufRead, BufReader, Write},
-    os::unix::net::UnixStream,
-};
+use anyhow::Result;
+use starship_common::socket;
+use starship_daemon::{config::ConfigLoader, handle_client};
 
 fn main() -> Result<()> {
     init_tracing();
 
+    let mut loader = ConfigLoader::new()?;
     let listener = socket::listen()?;
+
     for stream in listener.incoming() {
         match stream {
-            Ok(mut stream) => {
-                if let Err(e) = handle_client(&mut stream) {
+            Ok(stream) => {
+                if let Err(e) = handle_client(stream, &mut loader) {
                     tracing::error!("Error handling client: {}", e);
                 }
             }
@@ -23,50 +22,6 @@ fn main() -> Result<()> {
     }
 
     Ok(())
-}
-
-fn handle_client(stream: &mut UnixStream) -> Result<()> {
-    let reader = BufReader::with_capacity(256, stream.try_clone()?);
-
-    for line in reader.lines() {
-        let line = line.context("Failed to read line")?;
-        if line.is_empty() {
-            continue;
-        }
-
-        let context: ShellContext =
-            serde_json::from_str(&line).context("Failed to parse request")?;
-
-        let response = handle_request(context);
-        serde_json::to_writer(&mut *stream, &response)?;
-        stream.write_all(b"\n")?;
-        stream.flush()?;
-    }
-
-    Ok(())
-}
-
-fn handle_request(context: ShellContext) -> Prompt {
-    let user = context.user.unwrap_or_default();
-    let pwd = context
-        .pwd
-        .unwrap_or_default()
-        .to_string_lossy()
-        .to_string();
-
-    Prompt {
-        left: vec![
-            Module {
-                name: "user".into(),
-                output: user.into(),
-            },
-            Module {
-                name: "directory".into(),
-                output: pwd.into(),
-            },
-        ],
-        right: vec![],
-    }
 }
 
 fn init_tracing() {
