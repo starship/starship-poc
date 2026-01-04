@@ -1,9 +1,7 @@
-pub mod socket;
+mod context;
 mod module;
 mod prompt;
-mod context;
-
+pub mod socket;
+pub use context::ShellContext;
 pub use module::Module;
 pub use prompt::Prompt;
-pub use context::ShellContext;
-

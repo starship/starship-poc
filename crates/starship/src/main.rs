@@ -1,10 +1,9 @@
+use anyhow::{Context, Result};
+use starship_common::{Prompt, ShellContext, socket};
 use std::{
     env,
     io::{BufRead, BufReader, Write},
 };
-
-use anyhow::{Context, Result};
-use starship_common::{Prompt, ShellContext, socket};
 use tracing::instrument;
 
 #[instrument]

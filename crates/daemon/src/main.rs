@@ -1,10 +1,9 @@
+use anyhow::{Context, Result};
+use starship_common::{Module, Prompt, ShellContext, socket};
 use std::{
     io::{BufRead, BufReader, Write},
     os::unix::net::UnixStream,
 };
-
-use anyhow::{Context, Result};
-use starship_common::{Module, Prompt, ShellContext, socket};
 
 fn main() -> Result<()> {
     init_tracing();

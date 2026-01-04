@@ -1,6 +1,5 @@
-use std::borrow::Cow;
-
 use serde::{Deserialize, Serialize};
+use std::borrow::Cow;
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct Module {
