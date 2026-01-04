@@ -5,11 +5,13 @@ use crate::config::ConfigLoader;
 use anyhow::{Context, Result};
 use starship_common::{Module, Prompt, ShellContext};
 use std::io::{BufRead, BufReader, Read, Write};
+use tracing::instrument;
 
 #[must_use]
+#[instrument(skip_all)]
 pub fn handle_request(config: Config) -> Prompt {
     let prompt = config.format.unwrap_or_default();
-    println!("prompt: {prompt}");
+    tracing::info!("prompt: {prompt}");
 
     Prompt {
         left: vec![
@@ -26,6 +28,7 @@ pub fn handle_request(config: Config) -> Prompt {
     }
 }
 
+#[instrument(skip_all)]
 pub fn handle_client<S: Read + Write>(stream: S, loader: &mut ConfigLoader) -> Result<()> {
     let mut reader = BufReader::with_capacity(512, stream);
     let mut line = String::new();

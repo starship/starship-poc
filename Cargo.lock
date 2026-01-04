@@ -589,8 +589,6 @@ dependencies = [
  "serde_json",
  "starship-common",
  "tracing",
- "tracing-profile",
- "tracing-subscriber",
 ]
 
 [[package]]
@@ -601,6 +599,8 @@ dependencies = [
  "directories",
  "serde",
  "tracing",
+ "tracing-profile",
+ "tracing-subscriber",
 ]
 
 [[package]]
@@ -614,8 +614,6 @@ dependencies = [
  "serde_json",
  "starship-common",
  "tracing",
- "tracing-profile",
- "tracing-subscriber",
 ]
 
 [[package]]

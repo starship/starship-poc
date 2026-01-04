@@ -1,10 +1,11 @@
 use divan::{black_box, AllocProfiler, Bencher};
 use starship_common::ShellContext;
-use starship_daemon::{handle_client, handle_request};
+use starship_daemon::{config::ConfigLoader, handle_client};
 use std::{
     io::{BufRead, BufReader, Write},
     os::unix::net::UnixStream,
     path::PathBuf,
+    sync::{Arc, Mutex},
 };
 
 #[global_allocator]
@@ -21,27 +22,19 @@ fn test_context() -> ShellContext {
     }
 }
 
-/// Benchmark just the request handling logic
-#[divan::bench]
-fn handle_request_only(bencher: Bencher) {
-    let json = serde_json::to_string(&test_context()).unwrap();
-
-    bencher.bench(|| {
-        let context: ShellContext = serde_json::from_str(black_box(&json)).unwrap();
-        let prompt = handle_request(context);
-        serde_json::to_string(&prompt).unwrap()
-    });
-}
-
-/// Benchmark full client handling over `UnixStream`
 #[divan::bench]
 fn full_roundtrip(bencher: Bencher) {
-    let request = serde_json::to_string(&test_context()).unwrap();
+    let request = format!("{}\n", serde_json::to_string(&test_context()).unwrap());
+    let loader = Arc::new(Mutex::new(ConfigLoader::new().unwrap()));
 
     bencher.bench(|| {
         let (mut client, server) = UnixStream::pair().unwrap();
+        let loader = Arc::clone(&loader);
 
-        std::thread::spawn(move || handle_client(server));
+        std::thread::spawn(move || {
+            let mut loader = loader.lock().unwrap();
+            handle_client(server, &mut loader).unwrap();
+        });
 
         client.write_all(request.as_bytes()).unwrap();
         client.shutdown(std::net::Shutdown::Write).unwrap();

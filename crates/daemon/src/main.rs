@@ -1,9 +1,9 @@
 use anyhow::Result;
-use starship_common::socket;
+use starship_common::{init_tracing, socket};
 use starship_daemon::{config::ConfigLoader, handle_client};
 
 fn main() -> Result<()> {
-    init_tracing();
+    let _guard = init_tracing();
 
     let mut loader = ConfigLoader::new()?;
     let listener = socket::listen()?;
@@ -22,11 +22,4 @@ fn main() -> Result<()> {
     }
 
     Ok(())
-}
-
-fn init_tracing() {
-    tracing_subscriber::fmt()
-        .with_max_level(tracing::Level::INFO)
-        .pretty()
-        .init();
 }

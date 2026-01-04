@@ -3,12 +3,17 @@ use mlua::{Lua, LuaOptions, LuaSerdeExt, StdLib};
 use serde::{Deserialize, Serialize};
 use starship_common::{ShellContext, get_config_dir};
 use std::{fs, path::PathBuf, time::SystemTime};
+use tracing::instrument;
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Config {
     pub format: Option<String>,
 }
 
+/// Loads and caches the Lua config file.
+///
+/// Recompiles only when the file's mtime changes. The Lua state persists
+/// across loads, so the sandboxed environment is created once at startup.
 pub struct ConfigLoader {
     lua: Lua,
     path: PathBuf,
@@ -17,8 +22,9 @@ pub struct ConfigLoader {
 }
 
 impl ConfigLoader {
+    /// Creates a new loader with a sandboxed Luau runtime.
+    #[instrument(name = "ConfigLoader::new")]
     pub fn new() -> Result<Self> {
-        // Setup Luau in Sandbox mode with the safe subset of libraries
         let lua = Lua::new_with(StdLib::ALL_SAFE, LuaOptions::default())?;
         lua.sandbox(true)?;
         let path = get_config_path()?;
@@ -31,6 +37,8 @@ impl ConfigLoader {
         })
     }
 
+    /// Loads the config, recompiling only if the file changed.
+    #[instrument(skip_all, name = "ConfigLoader::load")]
     pub fn load(&mut self, context: &ShellContext) -> Result<Config> {
         let mtime = fs::metadata(&self.path)?.modified()?;
 
