@@ -1,4 +1,7 @@
-use std::{env, io::{BufRead, BufReader, Write}};
+use std::{
+    env,
+    io::{BufRead, BufReader, Write},
+};
 
 use anyhow::{Context, Result};
 use starship_common::{Prompt, ShellContext, socket};
@@ -39,16 +42,21 @@ fn construct_shell_context() -> ShellContext {
     ShellContext { pwd, user }
 }
 
+/// Initialize tracing.
+///
+/// If the `STARSHIP_PROFILE` environment variable is set, the tracing output
+/// will be formatted for profiling.
+///
+/// Returns a guard that shouldn't be dropped until the program exits.
 fn init_tracing() -> Option<impl Drop> {
     if env::var("STARSHIP_PROFILE").is_ok() {
         let guard = tracing_profile::init_tracing().expect("Failed to initialize profiler");
-        Some(guard)
-    } else {
-
-        tracing_subscriber::fmt()
-            .with_max_level(tracing::Level::INFO)
-            .pretty()
-            .init();
-        None
+        return Some(guard);
     }
+
+    tracing_subscriber::fmt()
+        .with_max_level(tracing::Level::INFO)
+        .pretty()
+        .init();
+    None
 }
