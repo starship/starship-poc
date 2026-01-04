@@ -11,6 +11,7 @@ default = []
 anyhow = { workspace = true }
 directories = "6.0"
 serde = { version = "1.0", features = ["derive"] }
+tracing = { workspace = true }
 
 [lints]
 workspace = true

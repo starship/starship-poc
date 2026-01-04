@@ -1,14 +1,19 @@
-use std::{io::{BufRead, BufReader, Write}, os::unix::net::UnixStream};
+use std::{env, io::{BufRead, BufReader, Write}};
 
 use anyhow::{Context, Result};
-use starship_common::{Prompt, ShellContext, get_socket_path};
+use starship_common::{Prompt, ShellContext, socket};
+use tracing::instrument;
 
+#[instrument]
 fn main() -> Result<()> {
-    let socket_path = get_socket_path()?;
-    let mut stream = UnixStream::connect(&socket_path)
-        .with_context(|| format!("failed to connect to daemon at {}", socket_path.display()))?;
+    let _guard = init_tracing();
+    run()
+}
 
+#[instrument(name = "starship")]
+fn run() -> Result<()> {
     // Send the shell context to the daemon
+    let mut stream = socket::connect()?;
     let shell_context = construct_shell_context();
     let request_json = serde_json::to_string(&shell_context)?;
     writeln!(stream, "{request_json}")?;
@@ -16,7 +21,11 @@ fn main() -> Result<()> {
 
     // Receive the response from the daemon
     let reader = BufReader::new(stream);
-    let line = reader.lines().next().context("Failed to read line")?.context("No response from daemon")?;
+    let line = reader
+        .lines()
+        .next()
+        .context("Failed to read line")?
+        .context("No response from daemon")?;
     let prompt: Prompt = serde_json::from_str(&line).context("Failed to parse response")?;
     print!("{} ❯", prompt.render());
 
@@ -28,4 +37,18 @@ fn construct_shell_context() -> ShellContext {
     let user = std::env::var("USER").ok();
 
     ShellContext { pwd, user }
+}
+
+fn init_tracing() -> Option<impl Drop> {
+    if env::var("STARSHIP_PROFILE").is_ok() {
+        let guard = tracing_profile::init_tracing().expect("Failed to initialize profiler");
+        Some(guard)
+    } else {
+
+        tracing_subscriber::fmt()
+            .with_max_level(tracing::Level::INFO)
+            .pretty()
+            .init();
+        None
+    }
 }

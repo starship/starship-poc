@@ -1,21 +1,15 @@
 use std::{
     io::{BufRead, BufReader, Write},
-    os::unix::net::{UnixListener, UnixStream},
+    os::unix::net::UnixStream,
 };
 
 use anyhow::{Context, Result};
-use starship_common::{Module, Prompt, ShellContext, get_socket_path};
+use starship_common::{Module, Prompt, ShellContext, socket};
 
 fn main() -> Result<()> {
     init_tracing();
 
-    let socket_path = get_socket_path()?;
-
-    let _ = std::fs::remove_file(&socket_path);
-    let listener = UnixListener::bind(&socket_path)
-        .with_context(|| format!("failed to bind to socket: {}", socket_path.display()))?;
-    tracing::info!("Listening on {:?}", &socket_path);
-
+    let listener = socket::listen()?;
     for stream in listener.incoming() {
         match stream {
             Ok(mut stream) => {
