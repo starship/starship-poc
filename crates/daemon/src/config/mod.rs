@@ -1,13 +1,35 @@
+use crate::config::style::{LuaStyledContent, register_style_functions};
 use anyhow::{Result, anyhow};
-use mlua::{Lua, LuaOptions, LuaSerdeExt, StdLib};
+use mlua::{FromLua, Lua, LuaOptions, LuaSerdeExt, StdLib};
 use serde::{Deserialize, Serialize};
-use starship_common::{ShellContext, get_config_dir};
+use starship_common::{ShellContext, get_config_dir, styled::StyledContent};
 use std::{fs, path::PathBuf, time::SystemTime};
 use tracing::instrument;
 
+mod style;
+
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Config {
-    pub format: Option<String>,
+    pub format: StyledContent,
+}
+
+/// Convert the Lua computed values into a Config struct.
+impl FromLua for Config {
+    fn from_lua(value: mlua::Value, _lua: &Lua) -> mlua::Result<Self> {
+        let table = value
+            .as_table()
+            .ok_or_else(|| mlua::Error::FromLuaConversionError {
+                from: value.type_name(),
+                to: "Config".to_string(),
+                message: Some("expected table".to_string()),
+            })?;
+
+        let format: LuaStyledContent = table.get("format")?;
+
+        Ok(Self {
+            format: format.into(),
+        })
+    }
 }
 
 /// Loads and caches the Lua config file.
@@ -27,6 +49,8 @@ impl ConfigLoader {
     pub fn new() -> Result<Self> {
         let lua = Lua::new_with(StdLib::ALL_SAFE, LuaOptions::default())?;
         lua.sandbox(true)?;
+        register_style_functions(&lua)?;
+
         let path = get_config_path()?;
 
         Ok(Self {
@@ -53,13 +77,12 @@ impl ConfigLoader {
         self.lua.globals().set("ctx", self.lua.to_value(context)?)?;
 
         // Run the cached config function
-        let returned_value = self
+        let config: Config = self
             .cached_func
             .as_ref()
             .ok_or_else(|| anyhow!("cached function should be set"))?
             .call(())?;
 
-        let config = self.lua.from_value(returned_value)?;
         Ok(config)
     }
 }

@@ -3,6 +3,7 @@ mod module;
 mod prompt;
 pub mod socket;
 mod tracing;
+pub mod styled;
 
 pub use context::ShellContext;
 pub use module::Module;
