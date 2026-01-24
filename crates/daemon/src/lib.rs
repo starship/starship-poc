@@ -1,33 +1,10 @@
 pub mod config;
 
-use crate::config::Config;
 use crate::config::ConfigLoader;
 use anyhow::{Context, Result};
-use starship_common::styled::StyledContent;
-use starship_common::{Module, Prompt, ShellContext};
+use starship_common::ShellContext;
 use std::io::{BufRead, BufReader, Read, Write};
 use tracing::instrument;
-
-#[must_use]
-#[instrument(skip_all)]
-pub fn handle_request(config: Config) -> Prompt {
-    let prompt = config.format;
-    tracing::info!("prompt: {prompt:?}");
-
-    Prompt {
-        left: vec![
-            Module {
-                name: "user".into(),
-                content: StyledContent::Text("user".to_string()),
-            },
-            Module {
-                name: "directory".into(),
-                content: StyledContent::Text("directory".to_string()),
-            },
-        ],
-        right: vec![],
-    }
-}
 
 #[instrument(skip_all)]
 pub fn handle_client<S: Read + Write>(stream: S, loader: &mut ConfigLoader) -> Result<()> {
@@ -42,11 +19,10 @@ pub fn handle_client<S: Read + Write>(stream: S, loader: &mut ConfigLoader) -> R
 
         let context: ShellContext =
             serde_json::from_str(&line).context("Failed to parse request")?;
-        let config = loader.load(&context)?;
+        let output = loader.load(&context)?;
 
-        let response = handle_request(config);
         let writer = reader.get_mut();
-        serde_json::to_writer(&mut *writer, &response)?;
+        serde_json::to_writer(&mut *writer, &output.format)?;
         writer.write_all(b"\n")?;
         writer.flush()?;
 
