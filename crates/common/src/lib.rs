@@ -1,13 +1,11 @@
 mod context;
 mod module;
-mod prompt;
 pub mod socket;
 mod tracing;
 pub mod styled;
 
 pub use context::ShellContext;
 pub use module::Module;
-pub use prompt::Prompt;
 pub use tracing::init_tracing;
 
 use anyhow::{Context, Result};

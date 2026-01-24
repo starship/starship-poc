@@ -41,11 +41,10 @@ fn render_prompt(prompt: StyledContent) -> String {
         StyledContent::Text(text) => text,
         StyledContent::Styled { children, .. } => {
             // TODO: Apply styles to the output
-            let mut output = String::new();
-            for child in children {
-                output.push_str(&render_prompt(child));
-            }
-            output
+            children
+                .iter()
+                .map(|child| render_prompt(child.clone()))
+                .collect()
         }
     }
 }
