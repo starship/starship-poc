@@ -592,6 +592,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "starship-bench"
+version = "0.0.0"
+dependencies = [
+ "anyhow",
+ "divan",
+ "starship",
+ "starship-common",
+ "starship-daemon",
+]
+
+[[package]]
 name = "starship-common"
 version = "0.1.0"
 dependencies = [
@@ -608,7 +619,6 @@ name = "starship-daemon"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "divan",
  "mlua",
  "serde",
  "serde_json",

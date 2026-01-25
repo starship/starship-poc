@@ -1,30 +1,19 @@
-use anyhow::{Context, Result};
-use starship_common::{ShellContext, init_tracing, socket, styled::StyledContent};
-use std::io::{BufRead, BufReader, Write};
+use anyhow::Result;
+use starship_common::{ShellContext, init_tracing, socket};
 use tracing::instrument;
 
 #[instrument]
 fn main() -> Result<()> {
     let _guard = init_tracing();
-    run()
+    prompt()
 }
 
 #[instrument(name = "starship")]
-fn run() -> Result<()> {
-    let mut stream = socket::connect()?;
+fn prompt() -> Result<()> {
+    let stream = socket::connect()?;
     let shell_context = construct_shell_context();
-    let request_json = serde_json::to_string(&shell_context)?;
-    writeln!(stream, "{request_json}")?;
-    stream.flush()?;
-
-    let reader = BufReader::new(stream);
-    let line = reader
-        .lines()
-        .next()
-        .context("Failed to read line")?
-        .context("No response from daemon")?;
-    let prompt: StyledContent = serde_json::from_str(&line).context("Failed to parse response")?;
-    print!("{}", render_prompt(prompt));
+    let prompt = starship::run(stream, &shell_context)?;
+    print!("{}", prompt);
 
     Ok(())
 }
@@ -34,17 +23,4 @@ fn construct_shell_context() -> ShellContext {
     let user = std::env::var("USER").ok();
 
     ShellContext { pwd, user }
-}
-
-fn render_prompt(prompt: StyledContent) -> String {
-    match prompt {
-        StyledContent::Text(text) => text,
-        StyledContent::Styled { children, .. } => {
-            // TODO: Apply styles to the output
-            children
-                .iter()
-                .map(|child| render_prompt(child.clone()))
-                .collect()
-        }
-    }
 }

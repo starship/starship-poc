@@ -1,0 +1,15 @@
+[package]
+name = "starship-bench"
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+[lints]
+workspace = true
+
+[dependencies]
+anyhow = { workspace = true }
+divan = "0.1.21"
+starship = { workspace = true }
+starship-common = { workspace = true }
+starship-daemon = { workspace = true }

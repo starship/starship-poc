@@ -6,6 +6,7 @@ use starship_common::ShellContext;
 use std::io::{BufRead, BufReader, Read, Write};
 use tracing::instrument;
 
+/// Handles a client connection, loading the config and responding with the prompt.
 #[instrument(skip_all)]
 pub fn handle_client<S: Read + Write>(stream: S, loader: &mut ConfigLoader) -> Result<()> {
     let mut reader = BufReader::with_capacity(512, stream);
