@@ -11,14 +11,28 @@ This repo is meant to serve as a proof of concept for a new architecture for Sta
 
 - [x] Create daemon for plugin and config loading
 - [x] Use lua for programmatic configuration
-- [ ] Use wasm for plugins
+  - [ ] Have lua values use metamethods to query WASM plugin
+- [ ] Use WASM for plugins
   - [ ] Create plugin SDK for opinionated authoring and testing
   - [ ] Have wasm bytecode compile to native and cached on disk
-- [ ] Have modules return structs rather than strings
+- [ ] Have modules generate lua types on load
 - [ ] Budget: 16.67ms (60fps) or 8.33ms (120fps)
 - [x] Daemon responds to `nc` for other shell prompts to use:
       `echo '{"pwd":"'$PWD'","user":"'$USER'"}' | nc -U ~/.config/starship/starship.sock`
 - [ ] Have modules enable based on repo root
+
+
+## Example config
+```lua
+rootUsername = user.name == "root" and "root" or nil
+
+-- git.branch calls the git plugin for the branch value
+-- compact trims values that are nil
+format = compact({ rootUsername, pwd, git.branch, "❯" })
+
+-- the returned string is the output
+return table.concat(format, " ")
+```
 
 ## Contributing
 
