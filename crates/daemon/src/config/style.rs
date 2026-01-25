@@ -80,7 +80,7 @@ impl FromLua for LuaStyledContent {
             _ => Err(mlua::Error::FromLuaConversionError {
                 from: value.type_name(),
                 to: "StyledContent".to_string(),
-                message: Some("expected string, StyledContent, or table".to_string()),
+                message: Some("expected string, StyledContent, or array".to_string()),
             }),
         }
     }
