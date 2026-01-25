@@ -17,20 +17,17 @@ pub fn run<S: Read + Write>(mut stream: S, context: &ShellContext) -> Result<Str
 
     // Parse the response from the daemon
     let prompt: StyledContent = serde_json::from_str(&line).context("Failed to parse response")?;
-    let rendered_prompt = render_prompt(prompt);
+    let rendered_prompt = render_prompt(&prompt);
     Ok(rendered_prompt)
 }
 
 /// Render the structured prompt representation into a string.
-fn render_prompt(prompt: StyledContent) -> String {
+fn render_prompt(prompt: &StyledContent) -> String {
     match prompt {
-        StyledContent::Text(text) => text,
+        StyledContent::Text(text) => text.clone(),
         StyledContent::Styled { children, .. } => {
             // TODO: Apply styles to the output
-            children
-                .iter()
-                .map(|child| render_prompt(child.clone()))
-                .collect()
+            children.iter().map(render_prompt).collect()
         }
     }
 }

@@ -20,7 +20,7 @@ fn prompt() -> Result<()> {
 
 fn construct_shell_context() -> ShellContext {
     let pwd = std::env::current_dir().ok();
-    let user = std::env::var("USER").ok();
+    let user = std::env::var_os("USER").map(|os| os.to_string_lossy().to_string());
 
     ShellContext { pwd, user }
 }

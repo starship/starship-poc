@@ -1,6 +1,6 @@
 pub mod config;
 
-use crate::config::ConfigLoader;
+use crate::config::{Config, ConfigLoader};
 use anyhow::{Context, Result};
 use starship_common::ShellContext;
 use std::io::{BufRead, BufReader, Read, Write};
@@ -20,7 +20,8 @@ pub fn handle_client<S: Read + Write>(stream: S, loader: &mut ConfigLoader) -> R
 
         let context: ShellContext =
             serde_json::from_str(&line).context("Failed to parse request")?;
-        let output = loader.load(&context)?;
+        let config_function = loader.load(&context)?;
+        let output: Config = config_function.call(())?;
 
         let writer = reader.get_mut();
         serde_json::to_writer(&mut *writer, &output.format)?;

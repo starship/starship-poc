@@ -1,6 +1,6 @@
 use std::{os::unix::net::UnixStream, path::PathBuf};
 
-use divan::{black_box, Bencher};
+use divan::{Bencher, black_box};
 use starship_common::ShellContext;
 use starship_daemon::{config::ConfigLoader, handle_client};
 
@@ -15,11 +15,15 @@ fn context() -> ShellContext {
     }
 }
 
-const MINIMAL: &str = r#"return { format = "$ " }"#;
-const WITH_MODULES: &str = r#"return { format = ctx.pwd .. " " .. ctx.user .. " $ " }"#;
+const MINIMAL: &str = r#"
+  return { format = "$ " }
+"#;
+const WITH_MODULES: &str = r#"
+  return { format = ctx.pwd .. " " .. ctx.user .. " $ " }
+"#;
 
 #[divan::bench(args = [MINIMAL, WITH_MODULES])]
-fn cold_start(config: &str) {
+fn cold_start_render(config: &str) {
     let mut loader = ConfigLoader::from_source(config).unwrap();
     let (client, server) = UnixStream::pair().unwrap();
     std::thread::spawn(move || handle_client(server, &mut loader).unwrap());
@@ -27,7 +31,7 @@ fn cold_start(config: &str) {
 }
 
 #[divan::bench(args = [MINIMAL, WITH_MODULES])]
-fn cached(bencher: Bencher, config: &str) {
+fn cached_render(bencher: Bencher, config: &str) {
     let mut loader = ConfigLoader::from_source(config).unwrap();
     bencher.bench_local(|| {
         let (client, server) = UnixStream::pair().unwrap();

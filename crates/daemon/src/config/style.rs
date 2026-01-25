@@ -43,7 +43,9 @@ fn collect_children(args: MultiValue) -> LuaResult<Vec<StyledContent>> {
                 let content = ud.borrow::<LuaStyledContent>()?;
                 Ok(content.0.clone())
             }
-            _ => Err(mlua::Error::RuntimeError("expected string".to_string())),
+            _ => Err(mlua::Error::RuntimeError(
+                "expected string or StyledContent".to_string(),
+            )),
         })
         .collect()
 }
@@ -65,10 +67,20 @@ impl FromLua for LuaStyledContent {
                 let content = ud.borrow::<Self>()?;
                 Ok(Self(content.0.clone()))
             }
+            Value::Table(table) => {
+                let children: Vec<StyledContent> = table
+                    .sequence_values::<Self>()
+                    .map(|value| value.map(|content| content.0))
+                    .collect::<LuaResult<_>>()?;
+                Ok(Self(StyledContent::Styled {
+                    style: Style::default(),
+                    children,
+                }))
+            }
             _ => Err(mlua::Error::FromLuaConversionError {
                 from: value.type_name(),
                 to: "StyledContent".to_string(),
-                message: Some("expected string or StyledContent".to_string()),
+                message: Some("expected string, StyledContent, or table".to_string()),
             }),
         }
     }

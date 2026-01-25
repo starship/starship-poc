@@ -1,5 +1,5 @@
 use crate::config::style::{LuaStyledContent, register_style_functions};
-use anyhow::{Result, anyhow};
+use anyhow::Result;
 use mlua::{FromLua, Lua, LuaOptions, LuaSerdeExt, StdLib};
 use serde::{Deserialize, Serialize};
 use starship_common::{ShellContext, get_config_dir, styled::StyledContent};
@@ -78,28 +78,41 @@ impl ConfigLoader {
 
     /// Loads the config, recompiling only if the file changed.
     #[instrument(skip_all, name = "ConfigLoader::load")]
-    pub fn load(&mut self, context: &ShellContext) -> Result<Config> {
-        // Recompile only if the config file has changed
-        if let ConfigSource::File(path) = &self.source {
-            let mtime = fs::metadata(path)?.modified()?;
-            if self.cached_mtime != Some(mtime) {
-                let content = fs::read_to_string(path)?;
-                self.cached_func = Some(self.lua.load(&content).into_function()?);
-                self.cached_mtime = Some(mtime);
-            }
-        }
+    pub fn load(&mut self, context: &ShellContext) -> Result<&mlua::Function> {
+        self.maybe_recompile()?;
+        self.set_globals(context)?;
 
-        // Update the context and run the cached config function
-        self.lua.globals().set("ctx", self.lua.to_value(context)?)?;
-
-        // Run the cached config function
-        let config: Config = self
+        Ok(self
             .cached_func
             .as_ref()
-            .ok_or_else(|| anyhow!("cached function should be set"))?
-            .call(())?;
+            .expect("cached function should be set"))
+    }
 
-        Ok(config)
+    #[instrument(skip_all)]
+    fn maybe_recompile(&mut self) -> Result<()> {
+        let ConfigSource::File(path) = &self.source else {
+            return Ok(());
+        };
+
+        let mtime = fs::metadata(path)?.modified()?;
+        if self.cached_mtime == Some(mtime) {
+            return Ok(());
+        }
+
+        let content = fs::read_to_string(path)?;
+        self.cached_func = Some(self.lua.load(&content).into_function()?);
+        self.cached_mtime = Some(mtime);
+        Ok(())
+    }
+
+    // Update the context to share shell context.
+    #[instrument(skip_all)]
+    fn set_globals(&self, context: &ShellContext) -> Result<()> {
+        // Define the context variable
+        self.lua.globals().set("ctx", self.lua.to_value(context)?)?;
+        // Register the style functions
+        register_style_functions(&self.lua)?;
+        Ok(())
     }
 }
 
@@ -107,10 +120,10 @@ impl ConfigLoader {
 fn create_lua() -> Result<Lua> {
     let lua = Lua::new_with(StdLib::ALL_SAFE, LuaOptions::default())?;
     lua.sandbox(true)?;
-    register_style_functions(&lua)?;
     Ok(lua)
 }
 
+/// Gets the path to the config file.
 fn get_config_path() -> Result<PathBuf> {
     let config_dir = get_config_dir()?;
     Ok(config_dir.join("config.lua"))
