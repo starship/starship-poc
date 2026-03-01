@@ -1,19 +1,10 @@
-use std::sync::LazyLock;
-
 use anyhow::Result;
 use mlua::Lua;
-use nerd_fonts::NerdFonts;
 
-static NERD_FONTS: LazyLock<NerdFonts> = LazyLock::new(|| NerdFonts {
-    nf: NerdFonts::load(),
-});
+include!(concat!(env!("OUT_DIR"), "/icons.rs"));
 
 pub fn register_icon_function(lua: &Lua) -> Result<()> {
-    lua.globals().set("icon", create_icon_fn(lua)?)?;
+    let icon_fn = lua.create_function(|_, name: String| Ok(ICONS.get(name.as_str()).copied()))?;
+    lua.globals().set("icon", icon_fn)?;
     Ok(())
-}
-
-fn create_icon_fn(lua: &Lua) -> Result<mlua::Function> {
-    lua.create_function(move |_, icon_name: String| Ok(NERD_FONTS.get(&icon_name)))
-        .map_err(anyhow::Error::from)
 }
