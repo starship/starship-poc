@@ -7,6 +7,7 @@ use std::{
 };
 use tracing::instrument;
 
+/// Get the path to the starship daemon socket.
 fn get_socket_path() -> Result<PathBuf> {
     let config_dir = get_config_dir()?;
     let socket_path = config_dir.join("starship.sock");

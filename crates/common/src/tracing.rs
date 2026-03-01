@@ -13,7 +13,7 @@ pub fn init_tracing() -> Option<impl Drop> {
     }
 
     tracing_subscriber::fmt()
-        .with_max_level(tracing::Level::INFO)
+        .with_max_level(tracing::Level::DEBUG)
         .pretty()
         .init();
     None

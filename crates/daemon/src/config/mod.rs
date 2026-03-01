@@ -1,4 +1,5 @@
 use crate::config::style::{LuaStyledContent, register_style_functions};
+use crate::config::nerd_font::register_icon_function;
 use anyhow::Result;
 use mlua::{FromLua, Lua, LuaOptions, LuaSerdeExt, StdLib};
 use serde::{Deserialize, Serialize};
@@ -7,6 +8,7 @@ use std::{fs, path::PathBuf, time::SystemTime};
 use tracing::instrument;
 
 mod style;
+mod nerd_font;
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Config {
@@ -110,8 +112,11 @@ impl ConfigLoader {
     fn set_globals(&self, context: &ShellContext) -> Result<()> {
         // Define the context variable
         self.lua.globals().set("ctx", self.lua.to_value(context)?)?;
-        // Register the style functions
+
+        // Register built-in functions
         register_style_functions(&self.lua)?;
+        register_icon_function(&self.lua)?;
+
         Ok(())
     }
 }
