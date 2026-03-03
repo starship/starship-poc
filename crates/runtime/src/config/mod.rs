@@ -1,14 +1,14 @@
-use crate::config::style::{LuaStyledContent, register_style_functions};
 use crate::config::nerd_font::register_icon_function;
+use crate::config::style::{register_style_functions, LuaStyledContent};
 use anyhow::Result;
 use mlua::{FromLua, Lua, LuaOptions, LuaSerdeExt, StdLib};
 use serde::{Deserialize, Serialize};
-use starship_common::{ShellContext, get_config_dir, styled::StyledContent};
+use starship_common::{get_config_dir, styled::StyledContent, ShellContext};
 use std::{fs, path::PathBuf, time::SystemTime};
 use tracing::instrument;
 
-mod style;
 mod nerd_font;
+mod style;
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Config {

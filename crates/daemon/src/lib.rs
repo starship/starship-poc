@@ -1,6 +1,6 @@
-pub mod config;
+// Re-export runtime for backward compatibility
+pub use starship_runtime::*;
 
-use crate::config::{Config, ConfigLoader};
 use anyhow::{Context, Result};
 use starship_common::ShellContext;
 use std::io::{BufRead, BufReader, Read, Write};

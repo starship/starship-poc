@@ -1,7 +1,8 @@
 use config::BenchConfig;
-use divan::{Bencher, black_box};
-use starship_common::ShellContext;
-use starship_daemon::{config::ConfigLoader, handle_client};
+use divan::{black_box, Bencher};
+use starship_common::{render_prompt, ShellContext};
+use starship_daemon::handle_client;
+use starship_runtime::ConfigLoader;
 use std::{os::unix::net::UnixStream, path::PathBuf};
 
 mod config;
@@ -32,16 +33,10 @@ fn context() -> ShellContext {
     }
 }
 
-#[divan::bench(args = CONFIGS, sample_count = 1000)]
-fn cold_start_render(config: &BenchConfig) {
-    let mut loader = ConfigLoader::from_source(config.source).unwrap();
-    let (client, server) = UnixStream::pair().unwrap();
-    std::thread::spawn(move || handle_client(server, &mut loader).unwrap());
-    starship::run(client, &context()).unwrap();
-}
+// --- Socket-based benchmark (end-to-end with IPC) ---
 
-#[divan::bench(args = CONFIGS, sample_count = 1000)]
-fn cached_render(bencher: Bencher, config: &BenchConfig) {
+#[divan::bench(args = [&CONFIGS[0]])]
+fn socket_render(bencher: Bencher, config: &BenchConfig) {
     let mut loader = ConfigLoader::from_source(config.source).unwrap();
     bencher.bench_local(|| {
         let (client, server) = UnixStream::pair().unwrap();
@@ -49,5 +44,27 @@ fn cached_render(bencher: Bencher, config: &BenchConfig) {
             s.spawn(|| handle_client(server, &mut loader).unwrap());
             black_box(starship::run(client, &context()).unwrap())
         })
+    });
+}
+
+// --- Daemonless benchmarks (runtime directly, no IPC) ---
+
+#[divan::bench(args = CONFIGS)]
+fn cold_start(config: &BenchConfig) {
+    let mut loader = ConfigLoader::from_source(config.source).unwrap();
+    let ctx = context();
+    let func = loader.load(&ctx).unwrap();
+    let output: starship_runtime::Config = func.call(()).unwrap();
+    black_box(render_prompt(&output.format));
+}
+
+#[divan::bench(args = CONFIGS)]
+fn cached_config(bencher: Bencher, config: &BenchConfig) {
+    let mut loader = ConfigLoader::from_source(config.source).unwrap();
+    bencher.bench_local(|| {
+        let ctx = context();
+        let func = loader.load(&ctx).unwrap();
+        let output: starship_runtime::Config = func.call(()).unwrap();
+        black_box(render_prompt(&output.format))
     });
 }

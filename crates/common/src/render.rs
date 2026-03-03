@@ -1,4 +1,4 @@
-use starship_common::styled::{Color, StyledContent};
+use crate::styled::{Color, StyledContent};
 
 /// Render the structured prompt representation into a string.
 pub fn render_prompt(prompt: &StyledContent) -> String {

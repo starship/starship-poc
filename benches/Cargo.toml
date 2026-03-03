@@ -13,3 +13,4 @@ divan = "0.1.21"
 starship = { workspace = true }
 starship-common = { workspace = true }
 starship-daemon = { workspace = true }
+starship-runtime = { workspace = true }

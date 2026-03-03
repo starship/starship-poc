@@ -1,9 +1,6 @@
-use crate::render::render_prompt;
 use anyhow::{Context, Result};
-use starship_common::{ShellContext, styled::StyledContent};
+use starship_common::{render_prompt, styled::StyledContent, ShellContext};
 use std::io::{BufRead, BufReader, Read, Write};
-
-mod render;
 
 pub fn run<S: Read + Write>(mut stream: S, context: &ShellContext) -> Result<String> {
     // Send the context to the daemon
