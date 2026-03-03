@@ -1,26 +1,27 @@
 use config::BenchConfig;
-use divan::{black_box, Bencher};
-use starship_common::{render_prompt, ShellContext};
+use divan::{Bencher, black_box};
+use starship_common::{ShellContext, render_prompt};
 use starship_daemon::handle_client;
 use starship_runtime::ConfigLoader;
 use std::{os::unix::net::UnixStream, path::PathBuf};
 
 mod config;
 
-const CONFIGS: [BenchConfig; 2] = [
-    BenchConfig {
-        name: "Minimal",
-        source: r#"
-          return { format = "$ " }
-        "#,
-    },
-    BenchConfig {
-        name: "With Modules",
-        source: r#"
-          return { format = ctx.pwd .. " " .. ctx.user .. " $ " }
-        "#,
-    },
-];
+const MINIMAL_CONFIG: BenchConfig = BenchConfig {
+    name: "Minimal",
+    source: r#"
+        return { format = "$ " }
+    "#,
+};
+
+const WITH_MODULES_CONFIG: BenchConfig = BenchConfig {
+    name: "With Modules",
+    source: r#"
+        return { format = ctx.pwd .. " " .. ctx.user .. " $ " }
+    "#,
+};
+
+const ALL_CONFIGS: [BenchConfig; 2] = [MINIMAL_CONFIG, WITH_MODULES_CONFIG];
 
 fn main() {
     divan::main();
@@ -35,7 +36,7 @@ fn context() -> ShellContext {
 
 // --- Socket-based benchmark (end-to-end with IPC) ---
 
-#[divan::bench(args = [&CONFIGS[0]])]
+#[divan::bench(args = [MINIMAL_CONFIG])]
 fn socket_render(bencher: Bencher, config: &BenchConfig) {
     let mut loader = ConfigLoader::from_source(config.source).unwrap();
     bencher.bench_local(|| {
@@ -49,7 +50,7 @@ fn socket_render(bencher: Bencher, config: &BenchConfig) {
 
 // --- Daemonless benchmarks (runtime directly, no IPC) ---
 
-#[divan::bench(args = CONFIGS)]
+#[divan::bench(args = ALL_CONFIGS)]
 fn cold_start(config: &BenchConfig) {
     let mut loader = ConfigLoader::from_source(config.source).unwrap();
     let ctx = context();
@@ -58,7 +59,7 @@ fn cold_start(config: &BenchConfig) {
     black_box(render_prompt(&output.format));
 }
 
-#[divan::bench(args = CONFIGS)]
+#[divan::bench(args = ALL_CONFIGS)]
 fn cached_config(bencher: Bencher, config: &BenchConfig) {
     let mut loader = ConfigLoader::from_source(config.source).unwrap();
     bencher.bench_local(|| {
