@@ -1,4 +1,4 @@
-name: CodSpeed Benchmarks
+name: Benchmarks
 
 on:
   push:
@@ -9,12 +9,11 @@ on:
 
 permissions:
   contents: read
-  id-token: write
 
 jobs:
   benchmarks:
     name: Run benchmarks
-    runs-on: ubuntu-latest
+    runs-on: codspeed-macro
     steps:
       - uses: actions/checkout@v5
       - name: Setup rust toolchain, cache and cargo-codspeed binary
@@ -28,5 +27,5 @@ jobs:
       - name: Run the benchmarks
         uses: CodSpeedHQ/action@v4
         with:
-          mode: simulation
+          mode: walltime
           run: cargo codspeed run
