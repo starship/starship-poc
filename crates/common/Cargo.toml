@@ -4,9 +4,6 @@ description = "Common code for the Starship prompt"
 version = "0.1.0"
 edition = "2024"
 
-[features]
-default = []
-
 [dependencies]
 anyhow = { workspace = true }
 directories = "6.0"
