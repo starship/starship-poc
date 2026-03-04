@@ -219,6 +219,24 @@ mod tests {
     }
 
     #[test]
+    fn sandbox_blocks_dangerous_globals() {
+        let c = &ctx(Some("/tmp"), Some("u"));
+        for expr in [
+            r#"io.open("nope.txt")"#,
+            r#"os.execute("echo pwned")"#,
+            r#"debug.getinfo(1)"#,
+            r#"loadfile("nope.lua")"#,
+            r#"dofile("nope.lua")"#,
+        ] {
+            let source = format!(r#"{expr}; return {{ format = "x" }}"#);
+            assert!(
+                try_eval(&source, c).is_err(),
+                "{expr} should be blocked by sandbox"
+            );
+        }
+    }
+
+    #[test]
     fn file_backed_config_recompiles_on_change() -> Result<()> {
         use filetime::{set_file_mtime, FileTime};
 

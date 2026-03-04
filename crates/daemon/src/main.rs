@@ -5,7 +5,6 @@ use starship_daemon::{config::ConfigLoader, handle_client};
 fn main() -> Result<()> {
     let _guard = init_tracing();
 
-    // TODO: Setup as OnceCell
     let listener = socket::listen()?;
     let mut loader = ConfigLoader::new()?;
 

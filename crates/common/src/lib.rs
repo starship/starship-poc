@@ -1,12 +1,10 @@
 mod context;
-mod module;
 pub mod render;
 pub mod socket;
-mod tracing;
 pub mod styled;
+mod tracing;
 
 pub use context::ShellContext;
-pub use module::Module;
 pub use render::render_prompt;
 pub use tracing::init_tracing;
 
