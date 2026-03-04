@@ -17,7 +17,7 @@ pub struct Style {
     pub dimmed: bool,
 }
 
-#[derive(Debug, Serialize, Deserialize, Copy, Clone)]
+#[derive(Debug, Serialize, Deserialize, Copy, Clone, PartialEq, Eq)]
 pub enum Color {
     Black,
     Red,

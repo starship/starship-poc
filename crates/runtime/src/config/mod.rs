@@ -1,7 +1,7 @@
 use crate::config::nerd_font::register_icon_function;
 use crate::config::style::{register_style_functions, LuaStyledContent};
 use anyhow::Result;
-use mlua::{FromLua, Lua, LuaOptions, LuaSerdeExt, StdLib};
+use mlua::{FromLua, Lua, LuaOptions, LuaSerdeExt, SerializeOptions, StdLib};
 use serde::{Deserialize, Serialize};
 use starship_common::{get_config_dir, styled::StyledContent, ShellContext};
 use std::{fs, path::PathBuf, time::SystemTime};
@@ -65,6 +65,15 @@ impl ConfigLoader {
         })
     }
 
+    pub fn from_path(path: impl Into<PathBuf>) -> Result<Self> {
+        Ok(Self {
+            lua: create_lua()?,
+            source: ConfigSource::File(path.into()),
+            cached_func: None,
+            cached_mtime: None,
+        })
+    }
+
     /// Creates a new loader from a Lua source string.
     pub fn from_source(source: &str) -> Result<Self> {
         let lua = create_lua()?;
@@ -107,13 +116,12 @@ impl ConfigLoader {
         Ok(())
     }
 
-    // Update the context to share shell context.
     #[instrument(skip_all)]
     fn set_globals(&self, context: &ShellContext) -> Result<()> {
-        // Define the context variable
-        self.lua.globals().set("ctx", self.lua.to_value(context)?)?;
+        let options = SerializeOptions::new().serialize_none_to_null(false);
+        let ctx = self.lua.to_value_with(context, options)?;
+        self.lua.globals().set("ctx", ctx)?;
 
-        // Register built-in functions
         register_style_functions(&self.lua)?;
         register_icon_function(&self.lua)?;
 
@@ -132,4 +140,100 @@ fn create_lua() -> Result<Lua> {
 fn get_config_path() -> Result<PathBuf> {
     let config_dir = get_config_dir()?;
     Ok(config_dir.join("config.lua"))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use anyhow::Result;
+    use starship_common::styled::{Color, StyledContent};
+
+    fn ctx(pwd: Option<&str>, user: Option<&str>) -> ShellContext {
+        ShellContext {
+            pwd: pwd.map(PathBuf::from),
+            user: user.map(str::to_string),
+        }
+    }
+
+    fn try_eval(source: &str, context: &ShellContext) -> Result<Config> {
+        let mut loader = ConfigLoader::from_source(source)?;
+        let func = loader.load(context)?;
+        Ok(func.call(())?)
+    }
+
+    fn eval_text(loader: &mut ConfigLoader, context: &ShellContext) -> Result<String> {
+        let output: Config = loader.load(context)?.call(())?;
+        let StyledContent::Text(text) = output.format else {
+            anyhow::bail!("expected Text, got {:?}", output.format);
+        };
+        Ok(text)
+    }
+
+    fn eval(source: &str) -> Config {
+        try_eval(source, &ctx(Some("/tmp/test"), Some("testuser"))).unwrap()
+    }
+
+    #[test]
+    fn config_interpolates_context_values() {
+        let output = eval(r#"return { format = ctx.pwd .. " " .. ctx.user .. " $ " }"#);
+
+        let StyledContent::Text(text) = &output.format else {
+            panic!("expected Text, got {:?}", output.format);
+        };
+        assert_eq!(text, "/tmp/test testuser $ ");
+    }
+
+    #[test]
+    fn color_fns_wrap_text_in_styled_node() {
+        let output = eval(r#"return { format = green("hello") }"#);
+
+        let StyledContent::Styled { style, children } = &output.format else {
+            panic!("expected Styled, got {:?}", output.format);
+        };
+        assert_eq!(style.fg, Some(Color::Green));
+        assert_eq!(children.len(), 1);
+    }
+
+    #[test]
+    fn icon_fn_resolves_to_glyph() {
+        let output = eval(r#"return { format = icon("cod-git_commit") }"#);
+
+        let StyledContent::Text(text) = &output.format else {
+            panic!("expected Text, got {:?}", output.format);
+        };
+        assert!(!text.is_empty(), "icon should resolve to a glyph");
+    }
+
+    #[test]
+    fn none_context_fields_are_nil_in_lua() -> Result<()> {
+        let output = try_eval(
+            r#"return { format = ctx.pwd and "truthy" or "nil" }"#,
+            &ctx(None, None),
+        )?;
+
+        let StyledContent::Text(text) = &output.format else {
+            panic!("expected Text, got {:?}", output.format);
+        };
+        assert_eq!(text, "nil");
+        Ok(())
+    }
+
+    #[test]
+    fn file_backed_config_recompiles_on_change() -> Result<()> {
+        use filetime::{set_file_mtime, FileTime};
+
+        let dir = tempfile::tempdir()?;
+        let path = dir.path().join("config.lua");
+        let c = &ctx(None, None);
+
+        std::fs::write(&path, r#"return { format = "one" }"#)?;
+        let mut loader = ConfigLoader::from_path(&path)?;
+        assert_eq!(eval_text(&mut loader, c)?, "one");
+
+        std::fs::write(&path, r#"return { format = "two" }"#)?;
+        set_file_mtime(&path, FileTime::from_unix_time(i64::MAX / 2, 0))?;
+        assert_eq!(eval_text(&mut loader, c)?, "two");
+
+        Ok(())
+    }
 }

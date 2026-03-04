@@ -30,3 +30,27 @@ const fn fg_color(color: Color) -> &'static str {
         Color::White => "37",
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::styled::Style;
+
+    #[test]
+    fn styled_text_renders_to_ansi_escape_codes() {
+        let styled = StyledContent::Styled {
+            style: Style {
+                fg: Some(Color::Red),
+                ..Default::default()
+            },
+            children: vec![StyledContent::Text("error".into())],
+        };
+        assert_eq!(render_prompt(&styled), "\x1b[31merror\x1b[0m");
+    }
+
+    #[test]
+    fn plain_text_renders_unchanged() {
+        let text = StyledContent::Text("hello".into());
+        assert_eq!(render_prompt(&text), "hello");
+    }
+}

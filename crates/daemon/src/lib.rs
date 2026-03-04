@@ -33,3 +33,29 @@ pub fn handle_client<S: Read + Write>(stream: S, loader: &mut ConfigLoader) -> R
 
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::os::unix::net::UnixStream;
+    use std::path::PathBuf;
+
+    #[test]
+    fn client_receives_styled_prompt_over_socket() {
+        let mut loader =
+            ConfigLoader::from_source(r#"return { format = green(ctx.pwd .. " $ ") }"#).unwrap();
+        let ctx = ShellContext {
+            pwd: Some(PathBuf::from("/tmp")),
+            user: Some("test".into()),
+        };
+
+        let (client, server) = UnixStream::pair().unwrap();
+        std::thread::scope(|s| {
+            s.spawn(|| handle_client(server, &mut loader).unwrap());
+            assert_eq!(
+                starship::run(client, &ctx).unwrap(),
+                "\x1b[32m/tmp $ \x1b[0m"
+            );
+        });
+    }
+}

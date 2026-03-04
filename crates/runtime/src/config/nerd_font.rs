@@ -8,3 +8,13 @@ pub fn register_icon_function(lua: &Lua) -> Result<()> {
     lua.globals().set("icon", icon_fn)?;
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn icon_map_contains_known_glyphs() {
+        assert_eq!(ICONS.get("cod-git_commit"), Some(&"\u{eafc}"));
+    }
+}
