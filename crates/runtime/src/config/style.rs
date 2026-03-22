@@ -3,34 +3,66 @@ use mlua::{FromLua, Lua, MultiValue, Result as LuaResult, UserData, Value};
 use starship_common::styled::{Color, Style, StyledContent};
 
 pub fn register_style_functions(lua: &Lua) -> Result<()> {
-    // Colors
-    lua.globals()
-        .set("black", create_fg_fn(lua, Color::Black)?)?;
-    lua.globals().set("red", create_fg_fn(lua, Color::Red)?)?;
-    lua.globals()
-        .set("green", create_fg_fn(lua, Color::Green)?)?;
-    lua.globals()
-        .set("yellow", create_fg_fn(lua, Color::Yellow)?)?;
-    lua.globals().set("blue", create_fg_fn(lua, Color::Blue)?)?;
-    lua.globals()
-        .set("magenta", create_fg_fn(lua, Color::Magenta)?)?;
-    lua.globals().set("cyan", create_fg_fn(lua, Color::Cyan)?)?;
-    lua.globals()
-        .set("white", create_fg_fn(lua, Color::White)?)?;
+    let colors = [
+        ("black", Color::Black),
+        ("red", Color::Red),
+        ("green", Color::Green),
+        ("yellow", Color::Yellow),
+        ("blue", Color::Blue),
+        ("magenta", Color::Magenta),
+        ("cyan", Color::Cyan),
+        ("white", Color::White),
+    ];
+
+    for (name, color) in colors {
+        // Create foreground functions
+        lua.globals()
+            .set(name, create_color_fn(lua, color, false)?)?;
+        // Create background functions
+        lua.globals()
+            .set(format!("bg_{name}"), create_color_fn(lua, color, true)?)?;
+    }
+
+    let effects: [(&str, fn(&mut Style)); 5] = [
+        ("bold", |s| s.bold = true),
+        ("italic", |s| s.italic = true),
+        ("dimmed", |s| s.dimmed = true),
+        ("underline", |s| s.underline = true),
+        ("strikethrough", |s| s.strikethrough = true),
+    ];
+
+    for (name, apply) in effects {
+        lua.globals().set(name, create_effect_fn(lua, apply)?)?;
+    }
 
     Ok(())
 }
 
-fn create_fg_fn(lua: &Lua, color: Color) -> Result<mlua::Function> {
+fn create_color_fn(lua: &Lua, color: Color, bg: bool) -> Result<mlua::Function> {
     lua.create_function(move |_, args: MultiValue| {
         let children = collect_children(args)?;
-        Ok(LuaStyledContent(StyledContent::Styled {
-            style: Style {
+        let style = if bg {
+            Style {
+                bg: Some(color),
+                ..Default::default()
+            }
+        } else {
+            Style {
                 fg: Some(color),
                 ..Default::default()
-            },
-            children,
-        }))
+            }
+        };
+        Ok(LuaStyledContent(StyledContent::Styled { style, children }))
+    })
+    .map_err(anyhow::Error::from)
+}
+
+fn create_effect_fn(lua: &Lua, apply: fn(&mut Style)) -> Result<mlua::Function> {
+    lua.create_function(move |_, args: MultiValue| {
+        let children = collect_children(args)?;
+        let mut style = Style::default();
+        apply(&mut style);
+        Ok(LuaStyledContent(StyledContent::Styled { style, children }))
     })
     .map_err(anyhow::Error::from)
 }

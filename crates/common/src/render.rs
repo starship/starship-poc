@@ -1,4 +1,4 @@
-use crate::styled::{Color, StyledContent};
+use crate::styled::StyledContent;
 
 /// Render the structured prompt representation into a string.
 pub fn render_prompt(prompt: &StyledContent) -> String {
@@ -7,34 +7,18 @@ pub fn render_prompt(prompt: &StyledContent) -> String {
         StyledContent::Styled {
             style, children, ..
         } => {
-            let content = children.iter().map(render_prompt).collect();
-
-            if let Some(color) = style.fg {
-                format!("\x1b[{}m{}\x1b[0m", fg_color(color), content)
-            } else {
-                content
-            }
+            let ansi = style.to_anstyle();
+            let content: String = children.iter().map(render_prompt).collect();
+            // {style} emits ANSI open codes, {style:#} emits reset
+            format!("{ansi}{content}{ansi:#}")
         }
-    }
-}
-
-const fn fg_color(color: Color) -> &'static str {
-    match color {
-        Color::Black => "30",
-        Color::Red => "31",
-        Color::Green => "32",
-        Color::Yellow => "33",
-        Color::Blue => "34",
-        Color::Magenta => "35",
-        Color::Cyan => "36",
-        Color::White => "37",
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::styled::Style;
+    use crate::styled::{Color, Style};
 
     #[test]
     fn styled_text_renders_to_ansi_escape_codes() {
@@ -52,5 +36,48 @@ mod tests {
     fn plain_text_renders_unchanged() {
         let text = StyledContent::Text("hello".into());
         assert_eq!(render_prompt(&text), "hello");
+    }
+
+    #[test]
+    fn bold_and_fg_render_together() {
+        let style = Style {
+            fg: Some(Color::Green),
+            bold: true,
+            ..Default::default()
+        };
+        let ansi = style.to_anstyle();
+        let styled = StyledContent::Styled {
+            style,
+            children: vec![StyledContent::Text("ok".into())],
+        };
+        assert_eq!(render_prompt(&styled), format!("{ansi}ok{ansi:#}"));
+    }
+
+    #[test]
+    fn all_effects_render() {
+        let style = Style {
+            fg: Some(Color::Cyan),
+            bg: Some(Color::Black),
+            bold: true,
+            italic: true,
+            underline: true,
+            dimmed: true,
+            strikethrough: true,
+        };
+        let ansi = style.to_anstyle();
+        let styled = StyledContent::Styled {
+            style,
+            children: vec![StyledContent::Text("x".into())],
+        };
+        assert_eq!(render_prompt(&styled), format!("{ansi}x{ansi:#}"));
+    }
+
+    #[test]
+    fn unstyled_node_passes_through() {
+        let styled = StyledContent::Styled {
+            style: Style::default(),
+            children: vec![StyledContent::Text("bare".into())],
+        };
+        assert_eq!(render_prompt(&styled), "bare");
     }
 }

@@ -913,6 +913,7 @@ dependencies = [
 name = "starship-common"
 version = "0.1.0"
 dependencies = [
+ "anstyle",
  "anyhow",
  "directories",
  "serde",
