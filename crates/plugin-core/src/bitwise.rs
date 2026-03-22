@@ -1,4 +1,4 @@
-//! Bitwise Packing
+//! Pack a pointer and length into a single `u64` for WASM boundary crossing.
 //!
 //! WASM functions can only pass/return primitive types (i32, i64, f32, f64).
 //! We need to pass TWO values (pointer and length), so we pack them into one u64.

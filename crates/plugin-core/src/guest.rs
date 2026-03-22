@@ -33,14 +33,14 @@ pub extern "C" fn alloc(len: u32) -> *mut u8 {
 ///
 /// Takes a packed (ptr, len) as u64. We reconstruct the Vec and let it drop,
 /// which frees the memory.
+///
+/// # Safety
+/// The packed value must have come from a previous allocation in this module.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn dealloc(packed: u64) {
     let (ptr, len) = from_bitwise(packed);
-    // Reconstruct the Vec from the raw parts.
-    // This is safe because:
-    //   - ptr came from a Vec we allocated
-    //   - len is the original length
-    //   - capacity equals len (we allocated exactly what we needed)
+    // SAFETY: ptr came from a Vec we allocated, len is the original length,
+    // and capacity equals len (we shrink_to_fit before forgetting).
     unsafe {
         let _ = Vec::from_raw_parts(ptr as *mut u8, len as usize, len as usize);
     }
@@ -52,9 +52,6 @@ pub unsafe extern "C" fn dealloc(packed: u64) {
 /// Used by plugins to return data to the host.
 /// The plugin serializes its return value, and the host reads it from memory.
 pub fn write_msg<T: Serialize>(value: &T) -> u64 {
-    // Serialize using serde_json.
-    // JSON naturally supports schema evolution: unknown fields are ignored,
-    // and missing fields can use #[serde(default)].
     let mut buffer = serde_json::to_vec(value).expect("serialization failed");
     // Shrink capacity to match length so dealloc can correctly free the memory.
     // serde_json::to_vec may allocate extra capacity during serialization.
@@ -69,12 +66,12 @@ pub fn write_msg<T: Serialize>(value: &T) -> u64 {
 /// Deserialize a value from a packed (ptr, len).
 ///
 /// Used by plugins to read input data from the host.
+///
+/// # Safety
+/// The packed value must point to valid JSON data previously written by [`write_msg`].
 pub unsafe fn read_msg<T: for<'de> Deserialize<'de>>(packed: u64) -> T {
     let (ptr, len) = from_bitwise(packed);
-    // Reconstruct the Vec to get ownership of the bytes
+    // SAFETY: ptr/len came from write_msg which shrinks capacity to match length.
     let buffer = unsafe { Vec::from_raw_parts(ptr as *mut u8, len as usize, len as usize) };
-    // Deserialize and return. The Vec drops here, freeing the input buffer.
-    // JSON supports schema evolution: unknown fields are ignored by serde,
-    // and missing fields can use #[serde(default)].
     serde_json::from_slice(&buffer).expect("deserialization failed")
 }

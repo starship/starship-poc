@@ -1,6 +1,20 @@
 //! Shared types for communication between prompt<->daemon and daemon<->plugins.
 //!
 //! All types use serde for JSON serialization.
+//!
+//! WASM boundary types support schema evolution: new fields use `#[serde(default)]`
+//! so old plugins ignore unknown fields, and new code defaults missing fields.
+//!
+//! Example of adding a field in the future:
+//!
+//! ```ignore
+//! pub struct PluginContext {
+//!     pub pwd: String,
+//!     pub user: String,
+//!     #[serde(default)]           // <-- This attribute is key!
+//!     pub exit_code: Option<i32>, // <-- New field, defaults to None
+//! }
+//! ```
 
 use serde::{Deserialize, Serialize};
 
@@ -18,22 +32,6 @@ pub struct PromptRequest {
 pub struct PromptResponse {
     pub prompt: String,
 }
-
-// These types cross the WASM boundary and use JSON for serialization.
-//
-// IMPORTANT: These support schema evolution - you can add new fields with
-// #[serde(default)] and old plugins will continue to work (they'll just
-// ignore the new fields). Similarly, new code can read old data (missing
-// fields get their default values).
-//
-// Example of adding a field in the future:
-//
-//   pub struct PluginContext {
-//       pub pwd: String,
-//       pub user: String,
-//       #[serde(default)]           // <-- This attribute is key!
-//       pub exit_code: Option<i32>, // <-- New field, defaults to None
-//   }
 
 /// Context passed from daemon to each plugin's render function.
 /// Plugins can use this directly, or call host functions for more data.
