@@ -935,6 +935,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "starship-plugin-core"
+version = "0.0.0"
+dependencies = [
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "starship-runtime"
 version = "0.1.0"
 dependencies = [
