@@ -12,6 +12,11 @@ struct HostState {
     pwd: PathBuf,
 }
 
+/// A loaded WASM plugin instance backed by wasmtime.
+///
+/// Each plugin exposes named accessor methods (e.g. `version`, `branch`) that
+/// return JSON values across the WASM boundary. The plugin's lifecycle is tied
+/// to this struct — dropping it calls `_plugin_drop` in the guest.
 pub struct WasmPlugin {
     store: Store<HostState>,
     instance: Instance,
@@ -142,6 +147,10 @@ fn read_packed_bytes(
 }
 
 impl WasmPlugin {
+    /// Loads a WASM plugin from compiled bytes.
+    ///
+    /// Links host functions (get_env, exec, file_exists), instantiates the module,
+    /// reads the plugin name, and creates a guest-side instance handle.
     pub fn load(engine: &Engine, wasm_bytes: &[u8], pwd: &Path) -> Result<Self> {
         let module = Module::new(engine, wasm_bytes)?;
         let linker = create_linker(engine)?;
@@ -176,6 +185,8 @@ impl WasmPlugin {
         &self.name
     }
 
+    /// Updates the working directory for host function calls and invalidates
+    /// the cached `is_active` result. Called once per render cycle.
     pub fn update_context(&mut self, pwd: &Path) {
         self.store.data_mut().pwd = pwd.to_path_buf();
         self.is_active.set(None);
@@ -208,6 +219,10 @@ impl WasmPlugin {
         serde_json::from_slice::<bool>(&buf).unwrap_or(true)
     }
 
+    /// Calls a named accessor method on the plugin via `_plugin_call`.
+    ///
+    /// Returns `Value::Null` for unknown methods or if the guest traps.
+    /// The caller is responsible for converting the JSON value to the desired type.
     pub fn call_method(&mut self, method: &str) -> Result<Value> {
         let method_json = serde_json::to_vec(&method)?;
 
@@ -260,6 +275,10 @@ impl Drop for WasmPlugin {
     }
 }
 
+/// Registers a plugin as a Lua global with an `__index` metamethod.
+///
+/// Accessing `plugin_name.field` in Lua triggers `_plugin_call` via wasmtime.
+/// Skips registration (with a warning) if the name collides with an existing global.
 pub fn register_plugin(lua: &Lua, plugin: Rc<RefCell<WasmPlugin>>) -> mlua::Result<()> {
     let name = plugin.borrow().name().to_string();
 
@@ -299,6 +318,10 @@ pub fn register_plugin(lua: &Lua, plugin: Rc<RefCell<WasmPlugin>>) -> mlua::Resu
     Ok(())
 }
 
+/// Scans a directory for `.wasm` files and loads each as a plugin.
+///
+/// Returns an empty vec if the directory doesn't exist. Logs and skips
+/// individual plugins that fail to load.
 #[must_use]
 pub fn load_plugins(engine: &Engine, plugin_dir: &Path, pwd: &Path) -> Vec<WasmPlugin> {
     if !plugin_dir.exists() {
@@ -391,6 +414,8 @@ pub mod test_helpers {
             }
         }
 
+        /// Calls the guest's `_plugin_is_active` export. Returns `true` (fail-open)
+        /// if the export is missing, traps, or returns malformed data.
         pub fn is_active(&mut self) -> bool {
             self.plugin.update_context(&self.dir.clone());
             self.plugin.is_active()
