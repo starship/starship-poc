@@ -143,7 +143,7 @@ mod tests {
             let handle = s.spawn(|| starship::run(client, &ctx).unwrap());
             handle_client(server, &mut loader).unwrap();
             let result = handle.join().unwrap();
-            assert!(!result.is_empty(), "Expected non-empty result");
+            assert_eq!(result, "no-node");
         });
     }
 }

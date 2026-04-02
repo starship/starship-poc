@@ -8,7 +8,6 @@ use starship_common::{get_config_dir, styled::StyledContent, ShellContext};
 use std::cell::RefCell;
 use std::rc::Rc;
 use std::{fs, path::PathBuf, time::SystemTime};
-use tracing::instrument;
 use wasmtime::Engine;
 
 mod nerd_font;
@@ -60,7 +59,6 @@ pub struct ConfigLoader {
 
 impl ConfigLoader {
     /// Creates a new loader with a sandboxed Luau runtime.
-    #[instrument(name = "ConfigLoader::new")]
     pub fn new() -> Result<Self> {
         Self::from_path(get_config_path()?)
     }
@@ -116,7 +114,6 @@ impl ConfigLoader {
     }
 
     /// Loads the config, recompiling only if the file changed.
-    #[instrument(skip_all, name = "ConfigLoader::load")]
     pub fn load(&mut self, context: &ShellContext) -> Result<&mlua::Function> {
         self.maybe_recompile()?;
         self.set_globals(context)?;
@@ -127,7 +124,6 @@ impl ConfigLoader {
             .expect("cached function should be set"))
     }
 
-    #[instrument(skip_all)]
     fn maybe_recompile(&mut self) -> Result<()> {
         let ConfigSource::File(path) = &self.source else {
             return Ok(());
@@ -144,7 +140,6 @@ impl ConfigLoader {
         Ok(())
     }
 
-    #[instrument(skip_all)]
     fn set_globals(&self, context: &ShellContext) -> Result<()> {
         let options = SerializeOptions::new().serialize_none_to_null(false);
         let ctx = self.lua.to_value_with(context, options)?;
@@ -166,6 +161,8 @@ impl ConfigLoader {
 fn create_lua() -> Result<Lua> {
     let lua = Lua::new_with(StdLib::ALL_SAFE, LuaOptions::default())?;
     lua.sandbox(true)?;
+    register_style_functions(&lua)?;
+    register_icon_function(&lua)?;
     Ok(lua)
 }
 
@@ -302,7 +299,10 @@ mod tests {
 
         let bytes = std::fs::read(&wasm_path).expect("nodejs wasm should be readable");
         let engine = wasmtime::Engine::default();
-        let plugin = crate::plugin::WasmPlugin::load(&engine, &bytes, std::path::Path::new("/tmp"))
+        let dir = tempfile::tempdir().expect("tempdir should be created");
+        std::fs::write(dir.path().join("package.json"), "{}")
+            .expect("package.json should be written");
+        let plugin = crate::plugin::WasmPlugin::load(&engine, &bytes, dir.path())
             .expect("nodejs plugin should load");
 
         let mut loader = ConfigLoader::from_source_with_plugins(
@@ -312,7 +312,10 @@ mod tests {
         .expect("loader with plugin should build");
 
         let output: Config = loader
-            .load(&ctx(Some("/tmp"), Some("user")))
+            .load(&ctx(
+                Some(dir.path().to_str().expect("tempdir path utf8")),
+                Some("user"),
+            ))
             .expect("config load should succeed")
             .call(())
             .expect("lua config should evaluate");
