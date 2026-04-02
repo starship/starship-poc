@@ -296,27 +296,13 @@ mod tests {
     }
 
     #[test]
-    fn plugin_proxy_allows_version_lookup() {
-        let wasm_path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-            .parent()
-            .expect("runtime crate should have workspace parent")
-            .parent()
-            .expect("workspace should have repo parent")
-            .join("target/wasm32-unknown-unknown/release/nodejs.wasm");
-        if !wasm_path.exists() {
-            return;
-        }
-
-        let bytes = std::fs::read(&wasm_path).expect("nodejs wasm should be readable");
-        let engine = wasmtime::Engine::default();
-        let dir = tempfile::tempdir().expect("tempdir should be created");
-        std::fs::write(dir.path().join("package.json"), "{}")
-            .expect("package.json should be written");
-        let plugin = crate::plugin::WasmPlugin::load(&engine, &bytes, dir.path())
-            .expect("nodejs plugin should load");
+    fn plugin_proxy_resolves_field() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        std::fs::write(dir.path().join(".starship-test-marker"), "").unwrap();
+        let plugin = crate::plugin::test_helpers::load_test_plugin(dir.path());
 
         let mut loader = ConfigLoader::from_source_with_plugins(
-            r#"return { format = nodejs.version or "N/A" }"#,
+            r#"return { format = test.home or "N/A" }"#,
             vec![plugin],
         )
         .expect("loader with plugin should build");
@@ -333,37 +319,25 @@ mod tests {
         let StyledContent::Text(text) = output.format else {
             panic!("expected Text");
         };
-        assert!(
-            !text.is_empty(),
-            "nodejs.version should resolve when plugin is loaded"
-        );
+        assert_ne!(text, "N/A", "plugin field should resolve");
     }
 
     #[test]
     fn plugin_proxy_returns_nil_for_unknown_method() {
-        let wasm_path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-            .parent()
-            .expect("runtime crate should have workspace parent")
-            .parent()
-            .expect("workspace should have repo parent")
-            .join("target/wasm32-unknown-unknown/release/nodejs.wasm");
-        if !wasm_path.exists() {
-            return;
-        }
-
-        let bytes = std::fs::read(&wasm_path).expect("nodejs wasm should be readable");
-        let engine = wasmtime::Engine::default();
-        let plugin = crate::plugin::WasmPlugin::load(&engine, &bytes, std::path::Path::new("/tmp"))
-            .expect("nodejs plugin should load");
+        let dir = tempfile::tempdir().expect("tempdir");
+        let plugin = crate::plugin::test_helpers::load_test_plugin(dir.path());
 
         let mut loader = ConfigLoader::from_source_with_plugins(
-            r#"return { format = nodejs.fakefield or "fallback" }"#,
+            r#"return { format = test.fakefield or "fallback" }"#,
             vec![plugin],
         )
         .expect("loader with plugin should build");
 
         let output: Config = loader
-            .load(&ctx(Some("/tmp"), Some("user")))
+            .load(&ctx(
+                Some(dir.path().to_str().expect("tempdir path utf8")),
+                Some("user"),
+            ))
             .expect("config load should succeed")
             .call(())
             .expect("lua config should evaluate");

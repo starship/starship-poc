@@ -324,6 +324,30 @@ pub fn load_plugins(engine: &Engine, plugin_dir: &Path, pwd: &Path) -> Vec<WasmP
         .collect()
 }
 
+#[cfg(any(test, feature = "testing"))]
+pub mod test_helpers {
+    use std::path::{Path, PathBuf};
+
+    use wasmtime::Engine;
+
+    use super::WasmPlugin;
+
+    pub fn wasm_path(name: &str) -> PathBuf {
+        Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .and_then(|path| path.parent())
+            .unwrap_or_else(|| Path::new("/"))
+            .join(format!("target/wasm32-unknown-unknown/release/{name}.wasm"))
+    }
+
+    pub fn load_test_plugin(pwd: &Path) -> WasmPlugin {
+        let bytes = std::fs::read(wasm_path("starship_plugin_test_harness"))
+            .expect("test-harness.wasm should exist (built by build.rs)");
+        let engine = Engine::default();
+        WasmPlugin::load(&engine, &bytes, pwd).expect("test plugin should load")
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::path::Path;
@@ -333,22 +357,8 @@ mod tests {
     use tempfile::tempdir;
     use wasmtime::Engine;
 
-    use super::{load_plugins, WasmPlugin};
-
-    fn wasm_path(name: &str) -> std::path::PathBuf {
-        Path::new(env!("CARGO_MANIFEST_DIR"))
-            .parent()
-            .and_then(|path| path.parent())
-            .unwrap_or_else(|| Path::new("/"))
-            .join(format!("target/wasm32-unknown-unknown/release/{name}.wasm"))
-    }
-
-    fn load_test_plugin(pwd: &Path) -> WasmPlugin {
-        let bytes = std::fs::read(wasm_path("starship_plugin_test_harness"))
-            .expect("test-harness.wasm should exist (built by build.rs)");
-        let engine = Engine::default();
-        WasmPlugin::load(&engine, &bytes, pwd).expect("test plugin should load")
-    }
+    use super::load_plugins;
+    use super::test_helpers::load_test_plugin;
 
     #[test]
     fn sandboxed_luau_supports_index_metamethod() {
