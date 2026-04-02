@@ -28,7 +28,7 @@ fn main() -> Result<()> {
     } else {
         let stream = connect_or_spawn_daemon()?;
         let prompt = starship::run(stream, &ctx)?;
-        print!("{}", prompt);
+        print!("{prompt}");
     }
 
     Ok(())

@@ -117,6 +117,10 @@ impl ConfigLoader {
     }
 
     /// Loads the config, recompiling only if the file changed.
+    ///
+    /// # Panics
+    ///
+    /// Panics if called before any config source has been compiled.
     #[instrument(skip_all, name = "ConfigLoader::load")]
     pub fn load(&mut self, context: &ShellContext) -> Result<&mlua::Function> {
         self.maybe_recompile()?;
