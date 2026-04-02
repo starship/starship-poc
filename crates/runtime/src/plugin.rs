@@ -358,13 +358,15 @@ mod tests {
 
     #[test]
     fn plugin_loads_and_returns_name() {
-        let plugin = load_test_plugin(Path::new("/tmp"));
+        let dir = tempdir().expect("tempdir");
+        let plugin = load_test_plugin(dir.path());
         assert_eq!(plugin.name(), "test");
     }
 
     #[test]
     fn unknown_method_returns_null() {
-        let mut plugin = load_test_plugin(Path::new("/tmp"));
+        let dir = tempdir().expect("tempdir");
+        let mut plugin = load_test_plugin(dir.path());
         let result = plugin
             .call_method("does_not_exist")
             .expect("call_method should return a value");
@@ -373,15 +375,17 @@ mod tests {
 
     #[test]
     fn load_plugins_empty_dir_returns_empty_vec() {
-        let dir = tempdir().expect("tempdir should be created");
+        let dir = tempdir().expect("tempdir");
+        let plugin_dir = tempdir().expect("plugin dir");
         let engine = Engine::default();
-        let plugins = load_plugins(&engine, dir.path(), Path::new("/tmp"));
+        let plugins = load_plugins(&engine, plugin_dir.path(), dir.path());
         assert!(plugins.is_empty());
     }
 
     #[test]
     fn host_get_env() {
-        let mut plugin = load_test_plugin(Path::new("/tmp"));
+        let dir = tempdir().expect("tempdir");
+        let mut plugin = load_test_plugin(dir.path());
         let result = plugin
             .call_method("home")
             .expect("call_method should succeed");
