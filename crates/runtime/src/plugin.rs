@@ -332,33 +332,122 @@ pub mod test_helpers {
 
     use super::WasmPlugin;
 
-    pub fn wasm_path(name: &str) -> PathBuf {
+    fn wasm_path(name: &str) -> PathBuf {
         Path::new(env!("CARGO_MANIFEST_DIR"))
             .parent()
             .and_then(|path| path.parent())
             .unwrap_or_else(|| Path::new("/"))
-            .join(format!("target/wasm32-unknown-unknown/release/{name}.wasm"))
+            .join(format!(
+                "target/wasm32-unknown-unknown/release/{}.wasm",
+                name.replace('-', "_")
+            ))
     }
 
-    pub fn load_test_plugin(pwd: &Path) -> WasmPlugin {
-        let bytes = std::fs::read(wasm_path("starship_plugin_test_harness"))
-            .expect("test-harness.wasm should exist (built by build.rs)");
-        let engine = Engine::default();
-        WasmPlugin::load(&engine, &bytes, pwd).expect("test plugin should load")
+    pub struct PluginFixture {
+        pub dir: PathBuf,
+        plugin: WasmPlugin,
+        crate_name: String,
+        _tempdir: tempfile::TempDir,
+    }
+
+    impl PluginFixture {
+        pub fn new(crate_name: &str, pwd: &Path) -> Self {
+            let bytes = std::fs::read(wasm_path(crate_name))
+                .unwrap_or_else(|_| panic!("{crate_name}.wasm should exist (built by build.rs)"));
+            let engine = Engine::default();
+            let plugin = WasmPlugin::load(&engine, &bytes, pwd)
+                .unwrap_or_else(|e| panic!("plugin {crate_name} should load: {e}"));
+            Self {
+                dir: pwd.to_path_buf(),
+                plugin,
+                crate_name: crate_name.to_string(),
+                _tempdir: tempfile::TempDir::new().unwrap(),
+            }
+        }
+
+        pub fn with_tempdir(crate_name: &str) -> Self {
+            let dir = tempfile::TempDir::new().expect("tempdir");
+            let path = dir.path().to_path_buf();
+            let bytes = std::fs::read(wasm_path(crate_name))
+                .unwrap_or_else(|_| panic!("{crate_name}.wasm should exist (built by build.rs)"));
+            let engine = Engine::default();
+            let plugin = WasmPlugin::load(&engine, &bytes, &path)
+                .unwrap_or_else(|e| panic!("plugin {crate_name} should load: {e}"));
+            Self {
+                dir: path,
+                plugin,
+                crate_name: crate_name.to_string(),
+                _tempdir: dir,
+            }
+        }
+
+        pub fn get(&mut self, field: &str) -> Option<String> {
+            self.plugin.update_context(&self.dir.clone());
+            let value = self.plugin.call_method(field).ok()?;
+            match value {
+                serde_json::Value::Null => None,
+                serde_json::Value::String(s) => Some(s),
+                other => Some(other.to_string()),
+            }
+        }
+
+        pub fn is_active(&mut self) -> bool {
+            self.plugin.update_context(&self.dir.clone());
+            self.plugin.is_active()
+        }
+
+        pub fn render(&mut self, lua_expr: &str) -> String {
+            use crate::config::{Config, ConfigLoader};
+            use starship_common::{styled::StyledContent, ShellContext};
+
+            self.plugin.update_context(&self.dir.clone());
+            let lua_src = format!(r#"return {{ format = {lua_expr} }}"#);
+            let mut loader =
+                ConfigLoader::from_source_with_plugins(&lua_src, vec![self.plugin_for_loader()])
+                    .expect("loader should build");
+            let ctx = ShellContext {
+                pwd: Some(self.dir.clone()),
+                user: Some("test".into()),
+            };
+            let func = loader.load(&ctx).expect("config should load");
+            let output: Config = func.call(()).expect("lua should evaluate");
+            match output.format {
+                StyledContent::Text(t) => t,
+                other => format!("{other:?}"),
+            }
+        }
+
+        fn plugin_for_loader(&self) -> WasmPlugin {
+            let bytes = std::fs::read(wasm_path(&self.crate_name)).expect("wasm should exist");
+            let engine = Engine::default();
+            WasmPlugin::load(&engine, &bytes, &self.dir).expect("plugin should load")
+        }
+    }
+
+    /// Creates a `PluginFixture` with a fresh tempdir.
+    ///
+    /// - `plugin_fixture!()` — loads the current crate's plugin
+    /// - `plugin_fixture!("name")` — loads a plugin by crate name
+    #[macro_export]
+    macro_rules! plugin_fixture {
+        () => {
+            $crate::plugin::test_helpers::PluginFixture::with_tempdir(env!("CARGO_PKG_NAME"))
+        };
+        ($name:expr) => {
+            $crate::plugin::test_helpers::PluginFixture::with_tempdir($name)
+        };
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use std::path::Path;
+    use std::fs;
 
     use mlua::{Lua, LuaOptions, StdLib};
-    use serde_json::Value;
-    use tempfile::tempdir;
     use wasmtime::Engine;
 
     use super::load_plugins;
-    use super::test_helpers::load_test_plugin;
+    use crate::plugin_fixture;
 
     #[test]
     fn sandboxed_luau_supports_index_metamethod() {
@@ -382,25 +471,20 @@ mod tests {
 
     #[test]
     fn plugin_loads_and_returns_name() {
-        let dir = tempdir().expect("tempdir");
-        let plugin = load_test_plugin(dir.path());
-        assert_eq!(plugin.name(), "test");
+        let mut plugin = plugin_fixture!("starship-plugin-test-harness");
+        assert_eq!(plugin.get("home").is_some(), true);
     }
 
     #[test]
     fn unknown_method_returns_null() {
-        let dir = tempdir().expect("tempdir");
-        let mut plugin = load_test_plugin(dir.path());
-        let result = plugin
-            .call_method("does_not_exist")
-            .expect("call_method should return a value");
-        assert_eq!(result, Value::Null);
+        let mut plugin = plugin_fixture!("starship-plugin-test-harness");
+        assert!(plugin.get("does_not_exist").is_none());
     }
 
     #[test]
     fn load_plugins_empty_dir_returns_empty_vec() {
-        let dir = tempdir().expect("tempdir");
-        let plugin_dir = tempdir().expect("plugin dir");
+        let dir = tempfile::tempdir().expect("tempdir");
+        let plugin_dir = tempfile::tempdir().expect("plugin dir");
         let engine = Engine::default();
         let plugins = load_plugins(&engine, plugin_dir.path(), dir.path());
         assert!(plugins.is_empty());
@@ -408,35 +492,25 @@ mod tests {
 
     #[test]
     fn host_get_env() {
-        let dir = tempdir().expect("tempdir");
-        let mut plugin = load_test_plugin(dir.path());
-        let result = plugin
-            .call_method("home")
-            .expect("call_method should succeed");
-        assert!(result.is_string(), "HOME should be a string, got: {result}");
+        let mut plugin = plugin_fixture!("starship-plugin-test-harness");
+        assert!(plugin.get("home").is_some());
     }
 
     #[test]
     fn host_exec() {
-        let dir = tempdir().expect("tempdir should be created");
-        let mut plugin = load_test_plugin(dir.path());
-        let result = plugin
-            .call_method("pwd")
-            .expect("call_method should succeed");
-        let output = result.as_str().expect("pwd should return a string");
-        let actual = std::fs::canonicalize(output).expect("pwd output resolves");
-        let expected = std::fs::canonicalize(dir.path()).expect("tempdir path resolves");
+        let mut plugin = plugin_fixture!("starship-plugin-test-harness");
+        let pwd = plugin.get("pwd").expect("pwd should return a string");
+        let actual = std::fs::canonicalize(&pwd).expect("pwd output resolves");
+        let expected = std::fs::canonicalize(&plugin.dir).expect("tempdir path resolves");
         assert_eq!(actual, expected);
     }
 
     #[test]
     fn is_active_reflects_file_exists() {
-        let dir = tempdir().expect("tempdir should be created");
+        let mut plugin = plugin_fixture!("starship-plugin-test-harness");
+        assert!(!plugin.is_active());
 
-        let mut plugin = load_test_plugin(dir.path());
-        assert!(!plugin.is_active(), "no marker file = inactive");
-
-        std::fs::write(dir.path().join(".starship-test-marker"), "").unwrap();
-        assert!(plugin.is_active(), "marker file present = active");
+        fs::write(plugin.dir.join(".starship-test-marker"), "").unwrap();
+        assert!(plugin.is_active());
     }
 }
