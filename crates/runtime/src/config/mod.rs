@@ -66,9 +66,10 @@ impl ConfigLoader {
     }
 
     pub fn from_path(path: impl Into<PathBuf>) -> Result<Self> {
-        let plugin_dir = std::env::var("STARSHIP_PLUGIN_DIR")
-            .map(std::path::PathBuf::from)
-            .unwrap_or_else(|_| get_config_dir().unwrap_or_default().join("plugins"));
+        let plugin_dir = std::env::var("STARSHIP_PLUGIN_DIR").map_or_else(
+            |_| get_config_dir().unwrap_or_default().join("plugins"),
+            std::path::PathBuf::from,
+        );
         let default_pwd = std::env::current_dir().unwrap_or_default();
         let plugins = load_plugins(&Engine::default(), &plugin_dir, &default_pwd)
             .into_iter()
@@ -150,7 +151,10 @@ impl ConfigLoader {
         let ctx = self.lua.to_value_with(context, options)?;
         self.lua.globals().set("ctx", ctx)?;
 
-        let pwd = context.pwd.as_deref().unwrap_or(std::path::Path::new("/"));
+        let pwd = context
+            .pwd
+            .as_deref()
+            .unwrap_or_else(|| std::path::Path::new("/"));
         for plugin in &self.plugins {
             plugin.borrow_mut().update_context(pwd);
         }
