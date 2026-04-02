@@ -8,6 +8,7 @@ use starship_common::{get_config_dir, styled::StyledContent, ShellContext};
 use std::cell::RefCell;
 use std::rc::Rc;
 use std::{fs, path::PathBuf, time::SystemTime};
+use tracing::instrument;
 use wasmtime::Engine;
 
 mod nerd_font;
@@ -59,6 +60,7 @@ pub struct ConfigLoader {
 
 impl ConfigLoader {
     /// Creates a new loader with a sandboxed Luau runtime.
+    #[instrument(name = "ConfigLoader::new")]
     pub fn new() -> Result<Self> {
         Self::from_path(get_config_path()?)
     }
@@ -114,6 +116,7 @@ impl ConfigLoader {
     }
 
     /// Loads the config, recompiling only if the file changed.
+    #[instrument(skip_all, name = "ConfigLoader::load")]
     pub fn load(&mut self, context: &ShellContext) -> Result<&mlua::Function> {
         self.maybe_recompile()?;
         self.set_globals(context)?;
@@ -124,6 +127,7 @@ impl ConfigLoader {
             .expect("cached function should be set"))
     }
 
+    #[instrument(skip_all)]
     fn maybe_recompile(&mut self) -> Result<()> {
         let ConfigSource::File(path) = &self.source else {
             return Ok(());
@@ -140,13 +144,11 @@ impl ConfigLoader {
         Ok(())
     }
 
+    #[instrument(skip_all)]
     fn set_globals(&self, context: &ShellContext) -> Result<()> {
         let options = SerializeOptions::new().serialize_none_to_null(false);
         let ctx = self.lua.to_value_with(context, options)?;
         self.lua.globals().set("ctx", ctx)?;
-
-        register_style_functions(&self.lua)?;
-        register_icon_function(&self.lua)?;
 
         let pwd = context.pwd.as_deref().unwrap_or(std::path::Path::new("/"));
         for plugin in &self.plugins {
