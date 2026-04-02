@@ -16,7 +16,7 @@ wasmtime = "43.0.0"
 starship-plugin-core = { version = "0.0.0", path = "../plugin-core" }
 
 [features]
-testing = []
+testing = ["dep:tempfile"]
 
 [lints]
 workspace = true
@@ -24,6 +24,10 @@ workspace = true
 [build-dependencies]
 phf_codegen = "0.11"
 serde_json = "1.0"
+
+[dependencies.tempfile]
+version = "3.26.0"
+optional = true
 
 [dev-dependencies]
 filetime = "0.2.27"

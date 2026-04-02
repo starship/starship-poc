@@ -37,7 +37,6 @@ pub fn handle_client<S: Read + Write>(stream: S, loader: &mut ConfigLoader) -> R
 #[cfg(test)]
 mod tests {
     use super::*;
-    use starship_runtime::plugin::test_helpers::load_test_plugin;
     use std::os::unix::net::UnixStream;
 
     #[test]
@@ -61,50 +60,17 @@ mod tests {
 
     #[test]
     fn daemon_serves_prompt_with_plugin_data() {
-        let dir = tempfile::tempdir().expect("tempdir");
-        std::fs::write(dir.path().join(".starship-test-marker"), "").unwrap();
-
-        let mut loader = ConfigLoader::from_source_with_plugins(
-            r#"return { format = test.home or "none" }"#,
-            vec![load_test_plugin(dir.path())],
-        )
-        .expect("loader with plugin");
-
-        let ctx = ShellContext {
-            pwd: Some(dir.path().to_path_buf()),
-            user: Some("test".into()),
-        };
-
-        let (client, server) = UnixStream::pair().unwrap();
-        std::thread::scope(|s| {
-            let handle = s.spawn(|| starship::run(client, &ctx).unwrap());
-            handle_client(server, &mut loader).unwrap();
-            let result = handle.join().unwrap();
-            assert!(!result.is_empty(), "expected HOME value, got empty");
-            assert_ne!(result, "none", "expected HOME value, got fallback");
-        });
+        let mut plugin = starship_runtime::plugin_fixture!("starship-plugin-test-harness");
+        std::fs::write(plugin.dir.join(".starship-test-marker"), "").unwrap();
+        let result = plugin.render(r#"test.home or "none""#);
+        assert!(!result.is_empty());
+        assert_ne!(result, "none");
     }
 
     #[test]
     fn plugin_method_returns_nil_when_inactive() {
-        let dir = tempfile::tempdir().expect("tempdir");
-
-        let mut loader = ConfigLoader::from_source_with_plugins(
-            r#"return { format = test.home or "inactive" }"#,
-            vec![load_test_plugin(dir.path())],
-        )
-        .expect("loader with plugin");
-
-        let ctx = ShellContext {
-            pwd: Some(dir.path().to_path_buf()),
-            user: Some("test".into()),
-        };
-
-        let (client, server) = UnixStream::pair().unwrap();
-        std::thread::scope(|s| {
-            let handle = s.spawn(|| starship::run(client, &ctx).unwrap());
-            handle_client(server, &mut loader).unwrap();
-            assert_eq!(handle.join().unwrap(), "inactive");
-        });
+        let mut plugin = starship_runtime::plugin_fixture!("starship-plugin-test-harness");
+        let result = plugin.render(r#"test.home or "inactive""#);
+        assert_eq!(result, "inactive");
     }
 }

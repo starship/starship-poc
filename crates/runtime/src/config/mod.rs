@@ -297,53 +297,16 @@ mod tests {
 
     #[test]
     fn plugin_proxy_resolves_field() {
-        let dir = tempfile::tempdir().expect("tempdir");
-        std::fs::write(dir.path().join(".starship-test-marker"), "").unwrap();
-        let plugin = crate::plugin::test_helpers::load_test_plugin(dir.path());
-
-        let mut loader = ConfigLoader::from_source_with_plugins(
-            r#"return { format = test.home or "N/A" }"#,
-            vec![plugin],
-        )
-        .expect("loader with plugin should build");
-
-        let output: Config = loader
-            .load(&ctx(
-                Some(dir.path().to_str().expect("tempdir path utf8")),
-                Some("user"),
-            ))
-            .expect("config load should succeed")
-            .call(())
-            .expect("lua config should evaluate");
-
-        let StyledContent::Text(text) = output.format else {
-            panic!("expected Text");
-        };
-        assert_ne!(text, "N/A", "plugin field should resolve");
+        let mut plugin = crate::plugin_fixture!("starship-plugin-test-harness");
+        std::fs::write(plugin.dir.join(".starship-test-marker"), "").unwrap();
+        let result = plugin.render(r#"test.home or "N/A""#);
+        assert_ne!(result, "N/A");
     }
 
     #[test]
     fn plugin_proxy_returns_nil_for_unknown_method() {
-        let dir = tempfile::tempdir().expect("tempdir");
-        let plugin = crate::plugin::test_helpers::load_test_plugin(dir.path());
-
-        let mut loader = ConfigLoader::from_source_with_plugins(
-            r#"return { format = test.fakefield or "fallback" }"#,
-            vec![plugin],
-        )
-        .expect("loader with plugin should build");
-
-        let output: Config = loader
-            .load(&ctx(
-                Some(dir.path().to_str().expect("tempdir path utf8")),
-                Some("user"),
-            ))
-            .expect("config load should succeed")
-            .call(())
-            .expect("lua config should evaluate");
-        let StyledContent::Text(text) = output.format else {
-            panic!("expected Text");
-        };
-        assert_eq!(text, "fallback");
+        let mut plugin = crate::plugin_fixture!("starship-plugin-test-harness");
+        let result = plugin.render(r#"test.fakefield or "fallback""#);
+        assert_eq!(result, "fallback");
     }
 }
