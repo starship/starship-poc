@@ -62,22 +62,7 @@ impl ConfigLoader {
     /// Creates a new loader with a sandboxed Luau runtime.
     #[instrument(name = "ConfigLoader::new")]
     pub fn new() -> Result<Self> {
-        let plugin_dir = std::env::var("STARSHIP_PLUGIN_DIR")
-            .map(std::path::PathBuf::from)
-            .unwrap_or_else(|_| get_config_dir().unwrap_or_default().join("plugins"));
-        let default_pwd = std::env::current_dir().unwrap_or_default();
-        let plugins = load_plugins(&Engine::default(), &plugin_dir, &default_pwd)
-            .into_iter()
-            .map(|p| Rc::new(RefCell::new(p)))
-            .collect();
-
-        Ok(Self {
-            lua: create_lua()?,
-            source: ConfigSource::File(get_config_path()?),
-            cached_func: None,
-            cached_mtime: None,
-            plugins,
-        })
+        Self::from_path(get_config_path()?)
     }
 
     pub fn from_path(path: impl Into<PathBuf>) -> Result<Self> {
@@ -89,9 +74,14 @@ impl ConfigLoader {
             .into_iter()
             .map(|p| Rc::new(RefCell::new(p)))
             .collect();
+        let lua = create_lua()?;
+
+        for plugin in &plugins {
+            register_plugin(&lua, Rc::clone(plugin))?;
+        }
 
         Ok(Self {
-            lua: create_lua()?,
+            lua,
             source: ConfigSource::File(path.into()),
             cached_func: None,
             cached_mtime: None,
@@ -111,6 +101,10 @@ impl ConfigLoader {
             .into_iter()
             .map(|p| Rc::new(RefCell::new(p)))
             .collect();
+
+        for plugin in &plugins {
+            register_plugin(&lua, Rc::clone(plugin))?;
+        }
 
         Ok(Self {
             lua,
@@ -162,7 +156,6 @@ impl ConfigLoader {
         let pwd = context.pwd.as_deref().unwrap_or(std::path::Path::new("/"));
         for plugin in &self.plugins {
             plugin.borrow_mut().update_context(pwd);
-            register_plugin(&self.lua, Rc::clone(plugin))?;
         }
 
         Ok(())
