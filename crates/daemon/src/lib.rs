@@ -37,8 +37,8 @@ pub fn handle_client<S: Read + Write>(stream: S, loader: &mut ConfigLoader) -> R
 #[cfg(test)]
 mod tests {
     use super::*;
+    use starship_runtime::plugin::test_helpers::load_test_plugin;
     use std::os::unix::net::UnixStream;
-    use std::path::PathBuf;
 
     #[test]
     fn client_receives_styled_prompt_over_socket() {
@@ -59,29 +59,14 @@ mod tests {
         });
     }
 
-    fn test_harness_wasm_path() -> PathBuf {
-        std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-            .parent()
-            .and_then(|p| p.parent())
-            .unwrap_or(std::path::Path::new("/"))
-            .join("target/wasm32-unknown-unknown/release/starship_plugin_test_harness.wasm")
-    }
-
     #[test]
     fn daemon_serves_prompt_with_plugin_data() {
-        let bytes =
-            std::fs::read(test_harness_wasm_path()).expect("test-harness.wasm should exist");
-        let engine = wasmtime::Engine::default();
-
         let dir = tempfile::tempdir().expect("tempdir");
         std::fs::write(dir.path().join(".starship-test-marker"), "").unwrap();
 
-        let plugin = starship_runtime::plugin::WasmPlugin::load(&engine, &bytes, dir.path())
-            .expect("plugin loads");
-
         let mut loader = ConfigLoader::from_source_with_plugins(
             r#"return { format = test.home or "none" }"#,
-            vec![plugin],
+            vec![load_test_plugin(dir.path())],
         )
         .expect("loader with plugin");
 
@@ -102,17 +87,11 @@ mod tests {
 
     #[test]
     fn plugin_method_returns_nil_when_inactive() {
-        let bytes =
-            std::fs::read(test_harness_wasm_path()).expect("test-harness.wasm should exist");
-        let engine = wasmtime::Engine::default();
         let dir = tempfile::tempdir().expect("tempdir");
-
-        let plugin = starship_runtime::plugin::WasmPlugin::load(&engine, &bytes, dir.path())
-            .expect("plugin loads");
 
         let mut loader = ConfigLoader::from_source_with_plugins(
             r#"return { format = test.home or "inactive" }"#,
-            vec![plugin],
+            vec![load_test_plugin(dir.path())],
         )
         .expect("loader with plugin");
 

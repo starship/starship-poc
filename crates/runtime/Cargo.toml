@@ -15,6 +15,9 @@ phf = "0.11"
 wasmtime = "43.0.0"
 starship-plugin-core = { version = "0.0.0", path = "../plugin-core" }
 
+[features]
+testing = []
+
 [lints]
 workspace = true
 

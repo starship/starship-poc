@@ -16,5 +16,5 @@ workspace = true
 
 [dev-dependencies]
 starship.workspace = true
+starship-runtime = { workspace = true, features = ["testing"] }
 tempfile = "3.27.0"
-wasmtime = "43.0.0"
