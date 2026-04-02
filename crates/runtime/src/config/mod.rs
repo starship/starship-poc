@@ -55,7 +55,6 @@ pub struct ConfigLoader {
     source: ConfigSource,
     cached_func: Option<mlua::Function>,
     cached_mtime: Option<SystemTime>,
-    engine: Engine,
     plugins: Vec<Rc<RefCell<WasmPlugin>>>,
 }
 
@@ -63,12 +62,11 @@ impl ConfigLoader {
     /// Creates a new loader with a sandboxed Luau runtime.
     #[instrument(name = "ConfigLoader::new")]
     pub fn new() -> Result<Self> {
-        let engine = Engine::default();
         let plugin_dir = std::env::var("STARSHIP_PLUGIN_DIR")
             .map(std::path::PathBuf::from)
             .unwrap_or_else(|_| get_config_dir().unwrap_or_default().join("plugins"));
         let default_pwd = std::env::current_dir().unwrap_or_default();
-        let plugins = load_plugins(&engine, &plugin_dir, &default_pwd)
+        let plugins = load_plugins(&Engine::default(), &plugin_dir, &default_pwd)
             .into_iter()
             .map(|p| Rc::new(RefCell::new(p)))
             .collect();
@@ -78,18 +76,16 @@ impl ConfigLoader {
             source: ConfigSource::File(get_config_path()?),
             cached_func: None,
             cached_mtime: None,
-            engine,
             plugins,
         })
     }
 
     pub fn from_path(path: impl Into<PathBuf>) -> Result<Self> {
-        let engine = Engine::default();
         let plugin_dir = std::env::var("STARSHIP_PLUGIN_DIR")
             .map(std::path::PathBuf::from)
             .unwrap_or_else(|_| get_config_dir().unwrap_or_default().join("plugins"));
         let default_pwd = std::env::current_dir().unwrap_or_default();
-        let plugins = load_plugins(&engine, &plugin_dir, &default_pwd)
+        let plugins = load_plugins(&Engine::default(), &plugin_dir, &default_pwd)
             .into_iter()
             .map(|p| Rc::new(RefCell::new(p)))
             .collect();
@@ -99,7 +95,6 @@ impl ConfigLoader {
             source: ConfigSource::File(path.into()),
             cached_func: None,
             cached_mtime: None,
-            engine,
             plugins,
         })
     }
@@ -112,7 +107,6 @@ impl ConfigLoader {
     pub fn from_source_with_plugins(source: &str, plugins: Vec<WasmPlugin>) -> Result<Self> {
         let lua = create_lua()?;
         let func = lua.load(source).into_function()?;
-        let engine = Engine::default();
         let plugins = plugins
             .into_iter()
             .map(|p| Rc::new(RefCell::new(p)))
@@ -123,7 +117,6 @@ impl ConfigLoader {
             source: ConfigSource::Inline,
             cached_func: Some(func),
             cached_mtime: None,
-            engine,
             plugins,
         })
     }
