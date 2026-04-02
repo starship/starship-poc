@@ -1,8 +1,14 @@
+use std::process::Command;
 use std::{env, fs, io::Write, path::Path};
 
 /// Generates a compile-time icon lookup table from vendored Nerd Font glyphnames.json.
 /// Source: <https://github.com/ryanoasis/nerd-fonts/blob/master/glyphnames.json>
 fn main() {
+    build_icons();
+    build_test_plugins();
+}
+
+fn build_icons() {
     let output = Path::new(&env::var("OUT_DIR").unwrap()).join("icons.rs");
     let mut file = std::io::BufWriter::new(fs::File::create(output).unwrap());
 
@@ -27,4 +33,32 @@ fn main() {
     .unwrap();
 
     println!("cargo::rerun-if-changed=resources/glyphnames.json");
+}
+
+fn build_test_plugins() {
+    println!("cargo::rerun-if-changed=../../plugins/test-harness/src");
+    println!("cargo::rerun-if-changed=../../plugins/test-harness/Cargo.toml");
+    println!("cargo::rerun-if-changed=../../plugins/nodejs/src");
+    println!("cargo::rerun-if-changed=../../plugins/nodejs/Cargo.toml");
+
+    let cargo = env::var("CARGO").unwrap_or_else(|_| "cargo".to_string());
+
+    for plugin in ["starship-plugin-test-harness", "starship-plugin-nodejs"] {
+        let status = Command::new(&cargo)
+            .args([
+                "build",
+                "-p",
+                plugin,
+                "--target",
+                "wasm32-unknown-unknown",
+                "--release",
+            ])
+            .status()
+            .unwrap_or_else(|e| panic!("failed to run cargo build for {plugin}: {e}"));
+
+        assert!(
+            status.success(),
+            "failed to compile {plugin} to wasm32-unknown-unknown"
+        );
+    }
 }
