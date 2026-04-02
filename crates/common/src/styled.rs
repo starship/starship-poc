@@ -8,6 +8,7 @@ pub enum StyledContent {
 }
 
 /// Serde-friendly style for the daemon-client wire format.
+#[allow(clippy::struct_excessive_bools)]
 #[derive(Debug, Serialize, Deserialize, Default, Clone)]
 pub struct Style {
     pub fg: Option<Color>,

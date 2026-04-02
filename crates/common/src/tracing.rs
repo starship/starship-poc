@@ -5,6 +5,10 @@ use std::env;
 /// If `STARSHIP_PROFILE` is set, output is formatted for profiling.
 ///
 /// Returns a guard that must not be dropped until the program exits.
+///
+/// # Panics
+///
+/// Panics if `STARSHIP_PROFILE` is set but the profiler fails to initialize.
 #[must_use]
 pub fn init_tracing() -> Option<impl Drop> {
     if env::var("STARSHIP_PROFILE").is_ok() {

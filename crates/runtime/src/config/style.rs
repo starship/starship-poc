@@ -23,6 +23,7 @@ pub fn register_style_functions(lua: &Lua) -> Result<()> {
             .set(format!("bg_{name}"), create_color_fn(lua, color, true)?)?;
     }
 
+    #[allow(clippy::type_complexity)]
     let effects: [(&str, fn(&mut Style)); 5] = [
         ("bold", |s| s.bold = true),
         ("italic", |s| s.italic = true),
