@@ -63,13 +63,6 @@ pub fn export_plugin(_attr: TokenStream, item: TokenStream) -> TokenStream {
         }
     };
 
-    let version_export = quote! {
-        #[unsafe(no_mangle)]
-        pub extern "C" fn _plugin_version() -> u64 {
-            starship_plugin_sdk::write_msg(&env!("CARGO_PKG_VERSION"))
-        }
-    };
-
     let new_export = quote! {
         #[unsafe(no_mangle)]
         pub extern "C" fn _plugin_new() -> u32 {
@@ -107,7 +100,6 @@ pub fn export_plugin(_attr: TokenStream, item: TokenStream) -> TokenStream {
         #instance_storage
         #name_export
         #is_active_export
-        #version_export
         #new_export
         #drop_export
         #call_export

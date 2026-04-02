@@ -8,8 +8,6 @@ crate-type = ["cdylib", "rlib"]
 
 [dependencies]
 starship-plugin-sdk = { path = "../../crates/plugin-sdk" }
-serde = { workspace = true }
-serde_json = { workspace = true }
 
 [dev-dependencies]
 starship-runtime = { path = "../../crates/runtime", features = ["testing"] }
