@@ -1,12 +1,18 @@
-use starship_plugin_sdk::export_plugin;
+use starship_plugin_sdk::{export_plugin, Plugin};
 
 #[derive(Default)]
 struct TestPlugin;
 
-#[export_plugin]
-impl TestPlugin {
+impl Plugin for TestPlugin {
     const NAME: &str = "test";
 
+    fn is_active(&self) -> bool {
+        true
+    }
+}
+
+#[export_plugin]
+impl TestPlugin {
     pub fn value(&self) -> &str {
         "hello"
     }

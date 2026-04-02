@@ -7,8 +7,10 @@ use crate::{read_msg, write_msg};
 unsafe extern "C" {
     fn _plugin_host_get_env(packed: u64) -> u64;
     fn _plugin_host_exec(packed: u64) -> u64;
+    fn _plugin_host_file_exists(packed: u64) -> u32;
 }
 
+/// Get the provided env variable
 pub fn get_env(name: &str) -> Option<String> {
     #[cfg(target_arch = "wasm32")]
     {
@@ -23,6 +25,7 @@ pub fn get_env(name: &str) -> Option<String> {
     }
 }
 
+/// Execute the provided command
 pub fn exec(cmd: &str, args: &[&str]) -> Option<String> {
     #[cfg(target_arch = "wasm32")]
     {
@@ -34,6 +37,20 @@ pub fn exec(cmd: &str, args: &[&str]) -> Option<String> {
     #[cfg(not(target_arch = "wasm32"))]
     {
         let _ = (cmd, args);
+        panic!("host functions only available in WASM");
+    }
+}
+
+/// Check whether the provided file path exists
+pub fn file_exists(path: &str) -> bool {
+    #[cfg(target_arch = "wasm32")]
+    {
+        let packed_input = write_msg(&path.to_string());
+        unsafe { _plugin_host_file_exists(packed_input) != 0 }
+    }
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        let _ = path;
         panic!("host functions only available in WASM");
     }
 }

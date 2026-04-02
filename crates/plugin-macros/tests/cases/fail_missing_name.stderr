@@ -1,5 +1,0 @@
-error: #[export_plugin] requires `const NAME: &str` in the impl block
- --> tests/cases/fail_missing_name.rs:7:6
-  |
-7 | impl BadPlugin {
-  |      ^^^^^^^^^

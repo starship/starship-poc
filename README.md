@@ -13,7 +13,9 @@ This repo is meant to serve as a proof of concept for a new architecture for Sta
 - [x] Use lua for programmatic configuration
   - [ ] Have lua values use metamethods to query WASM plugin
 - [ ] Use WASM for plugins
-  - [ ] Create plugin SDK for opinionated authoring and testing
+  - [ ] Create plugin SDK for opinionated:
+    - [ ] Authoring 
+    - [ ] Testing
   - [ ] Have wasm bytecode compile to native and cached on disk
 - [ ] Have modules generate lua types on load
 - [ ] Budget: 16.67ms (60fps) or 8.33ms (120fps)

@@ -1,0 +1,24 @@
+error[E0277]: the trait bound `BadPlugin: Plugin` is not satisfied
+ --> tests/cases/fail_missing_trait.rs:7:6
+  |
+7 | impl BadPlugin {
+  |      ^^^^^^^^^ unsatisfied trait bound
+  |
+help: the trait `Plugin` is not implemented for `BadPlugin`
+ --> tests/cases/fail_missing_trait.rs:4:1
+  |
+4 | struct BadPlugin;
+  | ^^^^^^^^^^^^^^^^
+
+error[E0277]: the trait bound `BadPlugin: Plugin` is not satisfied
+ --> tests/cases/fail_missing_trait.rs:6:1
+  |
+6 | #[export_plugin]
+  | ^^^^^^^^^^^^^^^^ unsatisfied trait bound
+  |
+help: the trait `Plugin` is not implemented for `BadPlugin`
+ --> tests/cases/fail_missing_trait.rs:4:1
+  |
+4 | struct BadPlugin;
+  | ^^^^^^^^^^^^^^^^
+  = note: this error originates in the attribute macro `export_plugin` (in Nightly builds, run with -Z macro-backtrace for more info)
