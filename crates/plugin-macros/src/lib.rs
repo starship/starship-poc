@@ -1,10 +1,11 @@
 use proc_macro::TokenStream;
 use quote::quote;
-use syn::{parse_macro_input, ImplItem, ItemImpl, Type};
+use syn::{ImplItem, ItemImpl, Type, parse_macro_input};
 
 /// Exports a plugin impl block for WASM.
 ///
-/// Requires `const NAME: &str` in the impl block.
+/// The struct must implement `starship_plugin_sdk::Plugin`.
+/// Public methods in this impl block become callable via `_plugin_call`.
 #[proc_macro_attribute]
 pub fn export_plugin(_attr: TokenStream, item: TokenStream) -> TokenStream {
     let impl_block = parse_macro_input!(item as ItemImpl);
@@ -13,23 +14,6 @@ pub fn export_plugin(_attr: TokenStream, item: TokenStream) -> TokenStream {
         Type::Path(type_path) => type_path.path.segments.last().unwrap().ident.clone(),
         _ => panic!("expected struct type"),
     };
-
-    let has_name_const = impl_block.items.iter().any(|item| {
-        if let ImplItem::Const(c) = item {
-            c.ident == "NAME"
-        } else {
-            false
-        }
-    });
-
-    if !has_name_const {
-        return syn::Error::new_spanned(
-            &impl_block.self_ty,
-            "#[export_plugin] requires `const NAME: &str` in the impl block",
-        )
-        .to_compile_error()
-        .into();
-    }
 
     let pub_methods: Vec<_> = impl_block
         .items
@@ -68,7 +52,17 @@ pub fn export_plugin(_attr: TokenStream, item: TokenStream) -> TokenStream {
     let name_export = quote! {
         #[unsafe(no_mangle)]
         pub extern "C" fn _plugin_name() -> u64 {
-            starship_plugin_sdk::write_msg(&#struct_type::NAME)
+            starship_plugin_sdk::write_msg(&<#struct_type as starship_plugin_sdk::Plugin>::NAME)
+        }
+    };
+
+    let is_active_export = quote! {
+        #[unsafe(no_mangle)]
+        pub extern "C" fn _plugin_is_active(handle: u32) -> u64 {
+            let Some(instance) = instances().get(&handle) else {
+                return starship_plugin_sdk::write_msg(&false);
+            };
+            starship_plugin_sdk::write_msg(&starship_plugin_sdk::Plugin::is_active(instance))
         }
     };
 
@@ -123,6 +117,7 @@ pub fn export_plugin(_attr: TokenStream, item: TokenStream) -> TokenStream {
         #impl_block
         #instance_storage
         #name_export
+        #is_active_export
         #version_export
         #methods_export
         #new_export
