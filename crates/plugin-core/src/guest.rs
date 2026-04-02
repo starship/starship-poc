@@ -15,51 +15,41 @@ use serde::{Deserialize, Serialize};
 ///   2. Write serialized bytes to that pointer
 ///   3. Call the plugin function with the packed (ptr, len)
 ///
-/// We use Vec to allocate, then `forget` it so Rust doesn't free it.
-/// The memory stays allocated until explicitly deallocated.
+/// Uses a boxed slice to guarantee capacity == len, avoiding the soundness
+/// issue where `Vec::with_capacity` may allocate more than requested.
 #[unsafe(no_mangle)]
 pub extern "C" fn alloc(len: u32) -> *mut u8 {
-    // Create a Vec with the requested capacity
-    let mut buf: Vec<u8> = Vec::with_capacity(len as usize);
-    // Get the raw pointer to the buffer
-    let ptr = buf.as_mut_ptr();
-    // "Forget" the Vec - this prevents Rust from dropping it when this function ends.
-    // The memory stays allocated, and we return the pointer to the host.
-    std::mem::forget(buf);
-    ptr
+    let boxed: Box<[u8]> = vec![0u8; len as usize].into_boxed_slice();
+    Box::into_raw(boxed) as *mut u8
 }
 
-/// Deallocate memory previously allocated by `alloc`.
+/// Deallocate memory previously allocated by `alloc` or `write_msg`.
 ///
-/// Takes a packed (ptr, len) as u64. We reconstruct the Vec and let it drop,
-/// which frees the memory.
+/// Takes a packed (ptr, len) as u64. Reconstructs the boxed slice and drops it.
 ///
 /// # Safety
 /// The packed value must have come from a previous allocation in this module.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn dealloc(packed: u64) {
     let (ptr, len) = from_bitwise(packed);
-    // SAFETY: ptr came from a Vec we allocated, len is the original length,
-    // and capacity equals len (we shrink_to_fit before forgetting).
     unsafe {
-        let _ = Vec::from_raw_parts(ptr as *mut u8, len as usize, len as usize);
+        let slice = std::slice::from_raw_parts_mut(ptr as *mut u8, len as usize);
+        let _ = Box::from_raw(slice as *mut [u8]);
     }
-    // Vec drops here, freeing the memory
 }
 
 /// Serialize a value and return a packed (ptr, len).
 ///
 /// Used by plugins to return data to the host.
 /// The plugin serializes its return value, and the host reads it from memory.
+///
+/// Converts to a boxed slice to guarantee capacity == len before leaking.
 pub fn write_msg<T: Serialize>(value: &T) -> u64 {
-    let mut buffer = serde_json::to_vec(value).expect("serialization failed");
-    // Shrink capacity to match length so dealloc can correctly free the memory.
-    // serde_json::to_vec may allocate extra capacity during serialization.
-    buffer.shrink_to_fit();
-    let len = buffer.len();
-    let ptr = buffer.as_ptr();
-    // Forget the buffer so it stays in memory for the host to read
-    std::mem::forget(buffer);
+    let boxed: Box<[u8]> = serde_json::to_vec(value)
+        .expect("serialization failed")
+        .into_boxed_slice();
+    let len = boxed.len();
+    let ptr = Box::into_raw(boxed) as *mut u8;
     into_bitwise(ptr as u32, len as u32)
 }
 
@@ -68,10 +58,12 @@ pub fn write_msg<T: Serialize>(value: &T) -> u64 {
 /// Used by plugins to read input data from the host.
 ///
 /// # Safety
-/// The packed value must point to valid JSON data previously written by [`write_msg`].
+/// The packed value must point to valid JSON data previously written to guest memory.
 pub unsafe fn read_msg<T: for<'de> Deserialize<'de>>(packed: u64) -> T {
     let (ptr, len) = from_bitwise(packed);
-    // SAFETY: ptr/len came from write_msg which shrinks capacity to match length.
-    let buffer = unsafe { Vec::from_raw_parts(ptr as *mut u8, len as usize, len as usize) };
-    serde_json::from_slice(&buffer).expect("deserialization failed")
+    let boxed = unsafe {
+        let slice = std::slice::from_raw_parts_mut(ptr as *mut u8, len as usize);
+        Box::from_raw(slice as *mut [u8])
+    };
+    serde_json::from_slice(&boxed).expect("deserialization failed")
 }

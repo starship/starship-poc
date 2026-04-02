@@ -1717,8 +1717,6 @@ dependencies = [
 name = "starship-plugin-test-harness"
 version = "0.1.0"
 dependencies = [
- "serde",
- "serde_json",
  "starship-plugin-sdk",
  "starship-runtime",
 ]
