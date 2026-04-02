@@ -1,11 +1,15 @@
 use crate::config::nerd_font::register_icon_function;
 use crate::config::style::{register_style_functions, LuaStyledContent};
+use crate::plugin::{load_plugins, register_plugin, WasmPlugin};
 use anyhow::Result;
 use mlua::{FromLua, Lua, LuaOptions, LuaSerdeExt, SerializeOptions, StdLib};
 use serde::{Deserialize, Serialize};
 use starship_common::{get_config_dir, styled::StyledContent, ShellContext};
+use std::cell::RefCell;
+use std::rc::Rc;
 use std::{fs, path::PathBuf, time::SystemTime};
 use tracing::instrument;
+use wasmtime::Engine;
 
 mod nerd_font;
 mod style;
@@ -51,39 +55,76 @@ pub struct ConfigLoader {
     source: ConfigSource,
     cached_func: Option<mlua::Function>,
     cached_mtime: Option<SystemTime>,
+    engine: Engine,
+    plugins: Vec<Rc<RefCell<WasmPlugin>>>,
 }
 
 impl ConfigLoader {
     /// Creates a new loader with a sandboxed Luau runtime.
     #[instrument(name = "ConfigLoader::new")]
     pub fn new() -> Result<Self> {
+        let engine = Engine::default();
+        let plugin_dir = std::env::var("STARSHIP_PLUGIN_DIR")
+            .map(std::path::PathBuf::from)
+            .unwrap_or_else(|_| get_config_dir().unwrap_or_default().join("plugins"));
+        let default_pwd = std::env::current_dir().unwrap_or_default();
+        let plugins = load_plugins(&engine, &plugin_dir, &default_pwd)
+            .into_iter()
+            .map(|p| Rc::new(RefCell::new(p)))
+            .collect();
+
         Ok(Self {
             lua: create_lua()?,
             source: ConfigSource::File(get_config_path()?),
             cached_func: None,
             cached_mtime: None,
+            engine,
+            plugins,
         })
     }
 
     pub fn from_path(path: impl Into<PathBuf>) -> Result<Self> {
+        let engine = Engine::default();
+        let plugin_dir = std::env::var("STARSHIP_PLUGIN_DIR")
+            .map(std::path::PathBuf::from)
+            .unwrap_or_else(|_| get_config_dir().unwrap_or_default().join("plugins"));
+        let default_pwd = std::env::current_dir().unwrap_or_default();
+        let plugins = load_plugins(&engine, &plugin_dir, &default_pwd)
+            .into_iter()
+            .map(|p| Rc::new(RefCell::new(p)))
+            .collect();
+
         Ok(Self {
             lua: create_lua()?,
             source: ConfigSource::File(path.into()),
             cached_func: None,
             cached_mtime: None,
+            engine,
+            plugins,
         })
     }
 
     /// Creates a new loader from a Lua source string.
     pub fn from_source(source: &str) -> Result<Self> {
+        Self::from_source_with_plugins(source, vec![])
+    }
+
+    pub fn from_source_with_plugins(source: &str, plugins: Vec<WasmPlugin>) -> Result<Self> {
         let lua = create_lua()?;
         let func = lua.load(source).into_function()?;
+        let engine = Engine::default();
+        let plugins = plugins
+            .into_iter()
+            .map(|p| Rc::new(RefCell::new(p)))
+            .collect();
 
         Ok(Self {
             lua,
             source: ConfigSource::Inline,
             cached_func: Some(func),
             cached_mtime: None,
+            engine,
+            plugins,
         })
     }
 
@@ -124,6 +165,12 @@ impl ConfigLoader {
 
         register_style_functions(&self.lua)?;
         register_icon_function(&self.lua)?;
+
+        let pwd = context.pwd.as_deref().unwrap_or(std::path::Path::new("/"));
+        for plugin in &self.plugins {
+            plugin.borrow_mut().update_context(pwd);
+            register_plugin(&self.lua, Rc::clone(plugin))?;
+        }
 
         Ok(())
     }
@@ -253,5 +300,77 @@ mod tests {
         assert_eq!(eval_text(&mut loader, c)?, "two");
 
         Ok(())
+    }
+
+    #[test]
+    fn plugin_proxy_allows_version_lookup() {
+        let wasm_path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .expect("runtime crate should have workspace parent")
+            .parent()
+            .expect("workspace should have repo parent")
+            .join("target/wasm32-unknown-unknown/release/nodejs.wasm");
+        if !wasm_path.exists() {
+            return;
+        }
+
+        let bytes = std::fs::read(&wasm_path).expect("nodejs wasm should be readable");
+        let engine = wasmtime::Engine::default();
+        let plugin = crate::plugin::WasmPlugin::load(&engine, &bytes, std::path::Path::new("/tmp"))
+            .expect("nodejs plugin should load");
+
+        let mut loader = ConfigLoader::from_source_with_plugins(
+            r#"return { format = nodejs.version or "N/A" }"#,
+            vec![plugin],
+        )
+        .expect("loader with plugin should build");
+
+        let output: Config = loader
+            .load(&ctx(Some("/tmp"), Some("user")))
+            .expect("config load should succeed")
+            .call(())
+            .expect("lua config should evaluate");
+
+        let StyledContent::Text(text) = output.format else {
+            panic!("expected Text");
+        };
+        assert!(
+            !text.is_empty(),
+            "nodejs.version should resolve when plugin is loaded"
+        );
+    }
+
+    #[test]
+    fn plugin_proxy_returns_nil_for_unknown_method() {
+        let wasm_path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .expect("runtime crate should have workspace parent")
+            .parent()
+            .expect("workspace should have repo parent")
+            .join("target/wasm32-unknown-unknown/release/nodejs.wasm");
+        if !wasm_path.exists() {
+            return;
+        }
+
+        let bytes = std::fs::read(&wasm_path).expect("nodejs wasm should be readable");
+        let engine = wasmtime::Engine::default();
+        let plugin = crate::plugin::WasmPlugin::load(&engine, &bytes, std::path::Path::new("/tmp"))
+            .expect("nodejs plugin should load");
+
+        let mut loader = ConfigLoader::from_source_with_plugins(
+            r#"return { format = nodejs.fakefield or "fallback" }"#,
+            vec![plugin],
+        )
+        .expect("loader with plugin should build");
+
+        let output: Config = loader
+            .load(&ctx(Some("/tmp"), Some("user")))
+            .expect("config load should succeed")
+            .call(())
+            .expect("lua config should evaluate");
+        let StyledContent::Text(text) = output.format else {
+            panic!("expected Text");
+        };
+        assert_eq!(text, "fallback");
     }
 }

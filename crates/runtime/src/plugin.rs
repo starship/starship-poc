@@ -1,6 +1,9 @@
+use std::cell::RefCell;
 use std::path::{Path, PathBuf};
+use std::rc::Rc;
 
 use anyhow::{anyhow, Result};
+use mlua::{Lua, Table, Value as LuaValue};
 use serde::de::DeserializeOwned;
 use serde_json::Value;
 use starship_plugin_core::{from_bitwise, into_bitwise};
@@ -258,6 +261,46 @@ impl Drop for WasmPlugin {
             let _ = drop_fn.call(&mut self.store, self.handle);
         }
     }
+}
+
+pub fn json_to_lua(lua: &Lua, value: &serde_json::Value) -> mlua::Result<LuaValue> {
+    match value {
+        serde_json::Value::Null => Ok(LuaValue::Nil),
+        serde_json::Value::Bool(b) => Ok(LuaValue::Boolean(*b)),
+        serde_json::Value::Number(n) => Ok(LuaValue::Number(n.as_f64().unwrap_or(0.0))),
+        serde_json::Value::String(s) => Ok(LuaValue::String(lua.create_string(s)?)),
+        _ => Ok(LuaValue::Nil),
+    }
+}
+
+pub fn register_plugin(lua: &Lua, plugin: Rc<RefCell<WasmPlugin>>) -> mlua::Result<()> {
+    let name = plugin.borrow().name().to_string();
+
+    if lua.globals().contains_key(name.as_str())? {
+        tracing::warn!(
+            "Plugin '{}' name collides with existing Lua global, skipping",
+            name
+        );
+        return Ok(());
+    }
+
+    let proxy: Table = lua.create_table()?;
+    let meta: Table = lua.create_table()?;
+
+    meta.set(
+        "__index",
+        lua.create_function(move |lua, (_table, key): (Table, String)| {
+            let result = plugin
+                .borrow_mut()
+                .call_method(&key)
+                .map_err(|e| mlua::Error::RuntimeError(e.to_string()))?;
+            json_to_lua(lua, &result)
+        })?,
+    )?;
+
+    proxy.set_metatable(Some(meta))?;
+    lua.globals().set(name.as_str(), proxy)?;
+    Ok(())
 }
 
 pub fn load_plugins(engine: &Engine, plugin_dir: &Path, pwd: &Path) -> Vec<WasmPlugin> {
