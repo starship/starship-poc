@@ -1,6 +1,6 @@
 use proc_macro::TokenStream;
 use quote::quote;
-use syn::{ImplItem, ItemImpl, Type, parse_macro_input};
+use syn::{parse_macro_input, ImplItem, ItemImpl, Type};
 
 /// Exports a plugin impl block for WASM.
 ///
@@ -27,9 +27,6 @@ pub fn export_plugin(_attr: TokenStream, item: TokenStream) -> TokenStream {
             None
         })
         .collect();
-
-    let method_names: Vec<String> = pub_methods.iter().map(|m| m.to_string()).collect();
-    let method_count = method_names.len();
 
     let match_arms = pub_methods.iter().map(|method| {
         let name = method.to_string();
@@ -73,14 +70,6 @@ pub fn export_plugin(_attr: TokenStream, item: TokenStream) -> TokenStream {
         }
     };
 
-    let methods_export = quote! {
-        #[unsafe(no_mangle)]
-        pub extern "C" fn _plugin_methods() -> u64 {
-            let methods: [&str; #method_count] = [#(#method_names),*];
-            starship_plugin_sdk::write_msg(&methods)
-        }
-    };
-
     let new_export = quote! {
         #[unsafe(no_mangle)]
         pub extern "C" fn _plugin_new() -> u32 {
@@ -119,7 +108,6 @@ pub fn export_plugin(_attr: TokenStream, item: TokenStream) -> TokenStream {
         #name_export
         #is_active_export
         #version_export
-        #methods_export
         #new_export
         #drop_export
         #call_export

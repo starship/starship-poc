@@ -4,7 +4,6 @@ use std::rc::Rc;
 
 use anyhow::{anyhow, Result};
 use mlua::{Lua, LuaSerdeExt, Table};
-use serde::de::DeserializeOwned;
 use serde_json::Value;
 use starship_plugin_core::{from_bitwise, into_bitwise};
 use wasmtime::{Caller, Engine, Instance, Linker, Module, Store};
@@ -138,36 +137,6 @@ fn read_packed_bytes(
     Ok(buf)
 }
 
-fn read_packed_json<T: DeserializeOwned>(
-    instance: &Instance,
-    store: &mut Store<HostState>,
-    packed: u64,
-) -> Result<T> {
-    let bytes = read_packed_bytes(instance, store, packed)?;
-    let dealloc = instance.get_typed_func::<u64, ()>(&mut *store, "dealloc")?;
-    dealloc.call(&mut *store, packed)?;
-    Ok(serde_json::from_slice(&bytes)?)
-}
-
-fn read_packed_string(
-    instance: &Instance,
-    store: &mut Store<HostState>,
-    func_name: &str,
-) -> Result<String> {
-    let func = instance.get_typed_func::<(), u64>(&mut *store, func_name)?;
-    let packed = func.call(&mut *store, ())?;
-    read_packed_json(instance, store, packed)
-}
-
-fn create_plugin_handle(instance: &Instance, store: &mut Store<HostState>) -> Result<u32> {
-    let func = instance.get_typed_func::<(), u32>(&mut *store, "_plugin_new")?;
-    Ok(func.call(&mut *store, ())?)
-}
-
-fn read_plugin_name(instance: &Instance, store: &mut Store<HostState>) -> Result<String> {
-    read_packed_string(instance, store, "_plugin_name")
-}
-
 impl WasmPlugin {
     pub fn load(engine: &Engine, wasm_bytes: &[u8], pwd: &Path) -> Result<Self> {
         let module = Module::new(engine, wasm_bytes)?;
@@ -179,8 +148,15 @@ impl WasmPlugin {
             },
         );
         let instance = linker.instantiate(&mut store, &module)?;
-        let name = read_plugin_name(&instance, &mut store)?;
-        let handle = create_plugin_handle(&instance, &mut store)?;
+        let name_func = instance.get_typed_func::<(), u64>(&mut store, "_plugin_name")?;
+        let name_packed = name_func.call(&mut store, ())?;
+        let name_bytes = read_packed_bytes(&instance, &mut store, name_packed)?;
+        let dealloc = instance.get_typed_func::<u64, ()>(&mut store, "dealloc")?;
+        dealloc.call(&mut store, name_packed)?;
+        let name: String = serde_json::from_slice(&name_bytes)?;
+
+        let new_func = instance.get_typed_func::<(), u32>(&mut store, "_plugin_new")?;
+        let handle = new_func.call(&mut store, ())?;
 
         Ok(Self {
             store,
@@ -196,6 +172,34 @@ impl WasmPlugin {
 
     pub fn update_context(&mut self, pwd: &Path) {
         self.store.data_mut().pwd = pwd.to_path_buf();
+    }
+
+    pub fn is_active(&mut self) -> bool {
+        let Ok(func) = self
+            .instance
+            .get_typed_func::<u32, u64>(&mut self.store, "_plugin_is_active")
+        else {
+            return true;
+        };
+        let Ok(packed) = func.call(&mut self.store, self.handle) else {
+            return true;
+        };
+        let (ptr, len) = from_bitwise(packed);
+        let memory = match self.instance.get_memory(&mut self.store, "memory") {
+            Some(m) => m,
+            None => return true,
+        };
+        let mut buf = vec![0u8; len as usize];
+        if memory.read(&self.store, ptr as usize, &mut buf).is_err() {
+            return true;
+        }
+        if let Ok(dealloc) = self
+            .instance
+            .get_typed_func::<u64, ()>(&mut self.store, "dealloc")
+        {
+            let _ = dealloc.call(&mut self.store, packed);
+        }
+        serde_json::from_slice::<bool>(&buf).unwrap_or(true)
     }
 
     pub fn call_method(&mut self, method: &str) -> Result<Value> {
@@ -265,8 +269,11 @@ pub fn register_plugin(lua: &Lua, plugin: Rc<RefCell<WasmPlugin>>) -> mlua::Resu
     meta.set(
         "__index",
         lua.create_function(move |lua, (_table, key): (Table, String)| {
+            let mut plugin = plugin.borrow_mut();
+            if !plugin.is_active() {
+                return Ok(mlua::Value::Nil);
+            }
             let result = plugin
-                .borrow_mut()
                 .call_method(&key)
                 .map_err(|e| mlua::Error::RuntimeError(e.to_string()))?;
             lua.to_value(&result)
