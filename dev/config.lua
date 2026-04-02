@@ -1,11 +1,4 @@
-local parts = {}
-
 local version = nodejs and nodejs.version
-if version then
-    table.insert(parts, green("node:" .. version))
-end
+local prefix = version and green("node:" .. version .. " ") or ""
 
-table.insert(parts, ctx.pwd or "")
-table.insert(parts, "❯ ")
-
-return { format = table.concat(parts, " ") }
+return { format = prefix .. (ctx.pwd or "") .. " ❯ " }
