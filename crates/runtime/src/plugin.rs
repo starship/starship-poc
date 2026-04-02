@@ -20,19 +20,6 @@ pub struct WasmPlugin {
     handle: u32,
 }
 
-fn checked_range(ptr: u32, len: u32, data_len: usize) -> Result<(usize, usize)> {
-    let start = ptr as usize;
-    let end = start
-        .checked_add(len as usize)
-        .ok_or_else(|| anyhow!("pointer range overflow"))?;
-    if end > data_len {
-        return Err(anyhow!(
-            "pointer range out of bounds: {start}..{end} > {data_len}"
-        ));
-    }
-    Ok((start, end))
-}
-
 fn caller_memory(caller: &mut Caller<'_, HostState>) -> Result<wasmtime::Memory> {
     caller
         .get_export("memory")
@@ -61,17 +48,15 @@ fn caller_dealloc(caller: &mut Caller<'_, HostState>, packed: u64) -> Result<()>
 fn read_guest_bytes(caller: &mut Caller<'_, HostState>, packed: u64) -> Result<Vec<u8>> {
     let (ptr, len) = from_bitwise(packed);
     let memory = caller_memory(caller)?;
-    let data = memory.data(&*caller);
-    let (start, end) = checked_range(ptr, len, data.len())?;
-    Ok(data[start..end].to_vec())
+    let mut buf = vec![0u8; len as usize];
+    memory.read(&*caller, ptr as usize, &mut buf)?;
+    Ok(buf)
 }
 
 fn write_guest_bytes(caller: &mut Caller<'_, HostState>, bytes: &[u8]) -> Result<u64> {
     let ptr = caller_alloc(caller, bytes.len() as u32)?;
     let memory = caller_memory(caller)?;
-    let data = memory.data_mut(&mut *caller);
-    let (start, end) = checked_range(ptr, bytes.len() as u32, data.len())?;
-    data[start..end].copy_from_slice(bytes);
+    memory.write(&mut *caller, ptr as usize, bytes)?;
     Ok(into_bitwise(ptr, bytes.len() as u32))
 }
 
@@ -148,9 +133,9 @@ fn read_packed_bytes(
     let memory = instance
         .get_memory(&mut *store, "memory")
         .ok_or_else(|| anyhow!("missing memory export"))?;
-    let data = memory.data(&*store);
-    let (start, end) = checked_range(ptr, len, data.len())?;
-    Ok(data[start..end].to_vec())
+    let mut buf = vec![0u8; len as usize];
+    memory.read(&*store, ptr as usize, &mut buf)?;
+    Ok(buf)
 }
 
 fn read_packed_json<T: DeserializeOwned>(
