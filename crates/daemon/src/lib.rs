@@ -42,10 +42,12 @@ mod tests {
 
     #[test]
     fn client_receives_styled_prompt_over_socket() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let pwd = dir.path().to_str().expect("tempdir path utf8");
         let mut loader =
             ConfigLoader::from_source(r#"return { format = green(ctx.pwd .. " $ ") }"#).unwrap();
         let ctx = ShellContext {
-            pwd: Some(PathBuf::from("/tmp")),
+            pwd: Some(dir.path().to_path_buf()),
             user: Some("test".into()),
         };
 
@@ -53,7 +55,7 @@ mod tests {
         std::thread::scope(|s| {
             let handle = s.spawn(|| starship::run(client, &ctx).unwrap());
             handle_client(server, &mut loader).unwrap();
-            assert_eq!(handle.join().unwrap(), "\x1b[32m/tmp $ \x1b[0m");
+            assert_eq!(handle.join().unwrap(), format!("\x1b[32m{pwd} $ \x1b[0m"));
         });
     }
 
@@ -103,14 +105,10 @@ mod tests {
         let bytes =
             std::fs::read(test_harness_wasm_path()).expect("test-harness.wasm should exist");
         let engine = wasmtime::Engine::default();
+        let dir = tempfile::tempdir().expect("tempdir");
 
-        // /tmp has no .starship-test-marker, so is_active = false, all fields = nil
-        let plugin = starship_runtime::plugin::WasmPlugin::load(
-            &engine,
-            &bytes,
-            std::path::Path::new("/tmp"),
-        )
-        .expect("plugin loads");
+        let plugin = starship_runtime::plugin::WasmPlugin::load(&engine, &bytes, dir.path())
+            .expect("plugin loads");
 
         let mut loader = ConfigLoader::from_source_with_plugins(
             r#"return { format = test.home or "inactive" }"#,
@@ -119,7 +117,7 @@ mod tests {
         .expect("loader with plugin");
 
         let ctx = ShellContext {
-            pwd: Some(PathBuf::from("/tmp")),
+            pwd: Some(dir.path().to_path_buf()),
             user: Some("test".into()),
         };
 
