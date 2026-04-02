@@ -9,6 +9,8 @@ fn main() {
 }
 
 fn build_icons() {
+    println!("cargo::rerun-if-changed=resources/glyphnames.json");
+
     let output = Path::new(&env::var("OUT_DIR").unwrap()).join("icons.rs");
     let mut file = std::io::BufWriter::new(fs::File::create(output).unwrap());
 
@@ -31,8 +33,6 @@ fn build_icons() {
         map.build()
     )
     .unwrap();
-
-    println!("cargo::rerun-if-changed=resources/glyphnames.json");
 }
 
 fn build_test_plugins() {

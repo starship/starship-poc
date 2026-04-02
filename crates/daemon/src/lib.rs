@@ -57,33 +57,28 @@ mod tests {
         });
     }
 
-    fn nodejs_wasm_path() -> PathBuf {
+    fn test_harness_wasm_path() -> PathBuf {
         std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
             .parent()
             .and_then(|p| p.parent())
             .unwrap_or(std::path::Path::new("/"))
-            .join("target/wasm32-unknown-unknown/release/nodejs.wasm")
+            .join("target/wasm32-unknown-unknown/release/starship_plugin_test_harness.wasm")
     }
 
     #[test]
     fn daemon_serves_prompt_with_plugin_data() {
-        let wasm_path = nodejs_wasm_path();
-        if !wasm_path.exists() {
-            eprintln!("Skipping: nodejs.wasm not found at {wasm_path:?}");
-            return;
-        }
-
-        let bytes = std::fs::read(&wasm_path).expect("nodejs wasm readable");
+        let bytes =
+            std::fs::read(test_harness_wasm_path()).expect("test-harness.wasm should exist");
         let engine = wasmtime::Engine::default();
 
         let dir = tempfile::tempdir().expect("tempdir");
-        std::fs::write(dir.path().join("package.json"), "{}").expect("write package.json");
+        std::fs::write(dir.path().join(".starship-test-marker"), "").unwrap();
 
         let plugin = starship_runtime::plugin::WasmPlugin::load(&engine, &bytes, dir.path())
             .expect("plugin loads");
 
         let mut loader = ConfigLoader::from_source_with_plugins(
-            r#"return { format = "node:" .. (nodejs.version or "none") }"#,
+            r#"return { format = test.home or "none" }"#,
             vec![plugin],
         )
         .expect("loader with plugin");
@@ -98,28 +93,18 @@ mod tests {
             let handle = s.spawn(|| starship::run(client, &ctx).unwrap());
             handle_client(server, &mut loader).unwrap();
             let result = handle.join().unwrap();
-            assert!(
-                result.starts_with("node:"),
-                "Expected 'node:' prefix, got: {result}"
-            );
-            assert!(
-                result.len() > 5,
-                "Expected version string after 'node:', got: {result}"
-            );
+            assert!(!result.is_empty(), "expected HOME value, got empty");
+            assert_ne!(result, "none", "expected HOME value, got fallback");
         });
     }
 
     #[test]
-    fn plugin_method_returns_nil_when_not_applicable() {
-        let wasm_path = nodejs_wasm_path();
-        if !wasm_path.exists() {
-            eprintln!("Skipping: nodejs.wasm not found at {wasm_path:?}");
-            return;
-        }
-
-        let bytes = std::fs::read(&wasm_path).expect("nodejs wasm readable");
+    fn plugin_method_returns_nil_when_inactive() {
+        let bytes =
+            std::fs::read(test_harness_wasm_path()).expect("test-harness.wasm should exist");
         let engine = wasmtime::Engine::default();
 
+        // /tmp has no .starship-test-marker, so is_active = false, all fields = nil
         let plugin = starship_runtime::plugin::WasmPlugin::load(
             &engine,
             &bytes,
@@ -128,7 +113,7 @@ mod tests {
         .expect("plugin loads");
 
         let mut loader = ConfigLoader::from_source_with_plugins(
-            r#"return { format = nodejs.version or "no-node" }"#,
+            r#"return { format = test.home or "inactive" }"#,
             vec![plugin],
         )
         .expect("loader with plugin");
@@ -142,8 +127,7 @@ mod tests {
         std::thread::scope(|s| {
             let handle = s.spawn(|| starship::run(client, &ctx).unwrap());
             handle_client(server, &mut loader).unwrap();
-            let result = handle.join().unwrap();
-            assert_eq!(result, "no-node");
+            assert_eq!(handle.join().unwrap(), "inactive");
         });
     }
 }
