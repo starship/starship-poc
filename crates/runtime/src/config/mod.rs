@@ -177,7 +177,13 @@ fn create_lua() -> Result<Lua> {
 }
 
 /// Gets the path to the config file.
+///
+/// Checks `STARSHIP_CONFIG` env var first, then falls back to
+/// `~/.config/starship/config.lua`.
 fn get_config_path() -> Result<PathBuf> {
+    if let Ok(path) = std::env::var("STARSHIP_CONFIG") {
+        return Ok(PathBuf::from(path));
+    }
     let config_dir = get_config_dir()?;
     Ok(config_dir.join("config.lua"))
 }

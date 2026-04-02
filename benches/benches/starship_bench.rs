@@ -1,6 +1,6 @@
 use config::BenchConfig;
-use divan::{Bencher, black_box};
-use starship_common::{ShellContext, render_prompt};
+use divan::{black_box, Bencher};
+use starship_common::{render_prompt, ShellContext};
 use starship_daemon::handle_client;
 use starship_runtime::ConfigLoader;
 use std::{os::unix::net::UnixStream, path::PathBuf};
@@ -42,8 +42,9 @@ fn socket_render(bencher: Bencher, config: &BenchConfig) {
     bencher.bench_local(|| {
         let (client, server) = UnixStream::pair().unwrap();
         std::thread::scope(|s| {
-            s.spawn(|| handle_client(server, &mut loader).unwrap());
-            black_box(starship::run(client, &context()).unwrap())
+            let handle = s.spawn(|| starship::run(client, &context()).unwrap());
+            handle_client(server, &mut loader).unwrap();
+            black_box(handle.join().unwrap())
         })
     });
 }
