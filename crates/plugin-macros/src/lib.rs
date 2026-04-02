@@ -19,10 +19,10 @@ pub fn export_plugin(_attr: TokenStream, item: TokenStream) -> TokenStream {
         .items
         .iter()
         .filter_map(|item| {
-            if let ImplItem::Fn(method) = item {
-                if matches!(method.vis, syn::Visibility::Public(_)) {
-                    return Some(method.sig.ident.clone());
-                }
+            if let ImplItem::Fn(method) = item
+                && matches!(method.vis, syn::Visibility::Public(_))
+            {
+                return Some(method.sig.ident.clone());
             }
             None
         })

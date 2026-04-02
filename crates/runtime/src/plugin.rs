@@ -22,14 +22,14 @@ pub struct WasmPlugin {
 fn caller_memory(caller: &mut Caller<'_, HostState>) -> Result<wasmtime::Memory> {
     caller
         .get_export("memory")
-        .and_then(|export| export.into_memory())
+        .and_then(wasmtime::Extern::into_memory)
         .ok_or_else(|| anyhow!("missing memory export"))
 }
 
 fn caller_alloc(caller: &mut Caller<'_, HostState>, len: u32) -> Result<u32> {
     let alloc = caller
         .get_export("alloc")
-        .and_then(|export| export.into_func())
+        .and_then(wasmtime::Extern::into_func)
         .ok_or_else(|| anyhow!("missing alloc export"))?;
     let alloc = alloc.typed::<u32, u32>(&mut *caller)?;
     Ok(alloc.call(&mut *caller, len)?)
@@ -38,7 +38,7 @@ fn caller_alloc(caller: &mut Caller<'_, HostState>, len: u32) -> Result<u32> {
 fn caller_dealloc(caller: &mut Caller<'_, HostState>, packed: u64) -> Result<()> {
     let dealloc = caller
         .get_export("dealloc")
-        .and_then(|export| export.into_func())
+        .and_then(wasmtime::Extern::into_func)
         .ok_or_else(|| anyhow!("missing dealloc export"))?;
     let dealloc = dealloc.typed::<u64, ()>(&mut *caller)?;
     Ok(dealloc.call(&mut *caller, packed)?)
@@ -53,10 +53,12 @@ fn read_guest_bytes(caller: &mut Caller<'_, HostState>, packed: u64) -> Result<V
 }
 
 fn write_guest_bytes(caller: &mut Caller<'_, HostState>, bytes: &[u8]) -> Result<u64> {
-    let ptr = caller_alloc(caller, bytes.len() as u32)?;
+    #[allow(clippy::cast_possible_truncation)]
+    let len = bytes.len() as u32;
+    let ptr = caller_alloc(caller, len)?;
     let memory = caller_memory(caller)?;
     memory.write(&mut *caller, ptr as usize, bytes)?;
-    Ok(into_bitwise(ptr, bytes.len() as u32))
+    Ok(into_bitwise(ptr, len))
 }
 
 fn host_get_env(caller: &mut Caller<'_, HostState>, packed: u64) -> Result<u64> {
@@ -90,7 +92,7 @@ fn host_file_exists(caller: &mut Caller<'_, HostState>, packed: u64) -> Result<u
     caller_dealloc(caller, packed)?;
     let path: String = serde_json::from_slice(&bytes)?;
     let full_path = caller.data().pwd.join(path);
-    Ok(if full_path.exists() { 1 } else { 0 })
+    Ok(u32::from(full_path.exists()))
 }
 
 fn create_linker(engine: &Engine) -> Result<Linker<HostState>> {
@@ -167,6 +169,7 @@ impl WasmPlugin {
         })
     }
 
+    #[must_use]
     pub fn name(&self) -> &str {
         &self.name
     }
@@ -186,9 +189,8 @@ impl WasmPlugin {
             return true;
         };
         let (ptr, len) = from_bitwise(packed);
-        let memory = match self.instance.get_memory(&mut self.store, "memory") {
-            Some(m) => m,
-            None => return true,
+        let Some(memory) = self.instance.get_memory(&mut self.store, "memory") else {
+            return true;
         };
         let mut buf = vec![0u8; len as usize];
         if memory.read(&self.store, ptr as usize, &mut buf).is_err() {
@@ -209,14 +211,16 @@ impl WasmPlugin {
         let alloc = self
             .instance
             .get_typed_func::<u32, u32>(&mut self.store, "alloc")?;
-        let ptr = alloc.call(&mut self.store, method_json.len() as u32)?;
+        #[allow(clippy::cast_possible_truncation)]
+        let method_len = method_json.len() as u32;
+        let ptr = alloc.call(&mut self.store, method_len)?;
         let memory = self
             .instance
             .get_memory(&mut self.store, "memory")
             .ok_or_else(|| anyhow!("missing memory export"))?;
         memory.write(&mut self.store, ptr as usize, &method_json)?;
 
-        let packed_method = into_bitwise(ptr, method_json.len() as u32);
+        let packed_method = into_bitwise(ptr, method_len);
         let call = self
             .instance
             .get_typed_func::<(u32, u64), u64>(&mut self.store, "_plugin_call")?;
@@ -287,6 +291,7 @@ pub fn register_plugin(lua: &Lua, plugin: Rc<RefCell<WasmPlugin>>) -> mlua::Resu
     Ok(())
 }
 
+#[must_use]
 pub fn load_plugins(engine: &Engine, plugin_dir: &Path, pwd: &Path) -> Vec<WasmPlugin> {
     if !plugin_dir.exists() {
         return vec![];
@@ -295,7 +300,7 @@ pub fn load_plugins(engine: &Engine, plugin_dir: &Path, pwd: &Path) -> Vec<WasmP
         return vec![];
     };
     entries
-        .filter_map(|entry| entry.ok())
+        .filter_map(std::result::Result::ok)
         .filter(|entry| entry.path().extension().is_some_and(|ext| ext == "wasm"))
         .filter_map(|entry| {
             let path = entry.path();
