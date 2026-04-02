@@ -87,19 +87,13 @@ fn collect_children(args: MultiValue) -> LuaResult<Vec<StyledContent>> {
 pub struct LuaStyledContent(pub StyledContent);
 impl UserData for LuaStyledContent {
     fn add_methods<M: mlua::UserDataMethods<Self>>(methods: &mut M) {
-        methods.add_meta_method("__concat", |_, this, other: Value| {
-            let right = match other {
-                Value::String(s) => StyledContent::Text(s.to_str()?.to_string()),
-                Value::UserData(ud) => ud.borrow::<LuaStyledContent>()?.0.clone(),
-                _ => {
-                    return Err(mlua::Error::RuntimeError(
-                        "cannot concatenate with non-string/StyledContent".to_string(),
-                    ))
-                }
-            };
+        /// Enables `..` between strings and styled content in Lua, in either order.
+        /// Plain strings are converted via `FromLua` before reaching this handler.
+        /// Wraps both sides in an unstyled parent node to preserve the styled tree.
+        methods.add_meta_method("__concat", |_, this, other: LuaStyledContent| {
             Ok(LuaStyledContent(StyledContent::Styled {
                 style: Style::default(),
-                children: vec![this.0.clone(), right],
+                children: vec![this.0.clone(), other.0],
             }))
         });
     }
