@@ -312,114 +312,28 @@ pub fn load_plugins(engine: &Engine, plugin_dir: &Path, pwd: &Path) -> Vec<WasmP
 
 #[cfg(test)]
 mod tests {
-    use std::path::{Path, PathBuf};
+    use std::path::Path;
 
     use mlua::{Lua, LuaOptions, StdLib};
-    use serde::de::DeserializeOwned;
-    use serde::Serialize;
     use serde_json::Value;
     use tempfile::tempdir;
-    use wasmtime::{Engine, Instance, Module, Store};
+    use wasmtime::Engine;
 
-    use super::{create_linker, load_plugins, HostState, WasmPlugin};
-    use starship_plugin_core::{from_bitwise, into_bitwise};
+    use super::{load_plugins, WasmPlugin};
 
-    const HOST_TEST_WAT: &str = r#"(module
-      (import "env" "_plugin_host_get_env" (func $host_get_env (param i64) (result i64)))
-      (import "env" "_plugin_host_exec" (func $host_exec (param i64) (result i64)))
-      (import "env" "_plugin_host_file_exists" (func $host_file_exists (param i64) (result i32)))
-      (memory (export "memory") 1)
-      (global $heap (mut i32) (i32.const 1024))
-
-      (func (export "alloc") (param $len i32) (result i32)
-        (local $ptr i32)
-        global.get $heap
-        local.tee $ptr
-        local.get $len
-        i32.add
-        global.set $heap
-        local.get $ptr
-      )
-
-      (func (export "dealloc") (param i64))
-
-      (func (export "call_get_env") (param i64) (result i64)
-        local.get 0
-        call $host_get_env
-      )
-
-      (func (export "call_exec") (param i64) (result i64)
-        local.get 0
-        call $host_exec
-      )
-
-      (func (export "call_file_exists") (param i64) (result i32)
-        local.get 0
-        call $host_file_exists
-      )
-    )"#;
-
-    fn nodejs_wasm_path() -> PathBuf {
+    fn wasm_path(name: &str) -> std::path::PathBuf {
         Path::new(env!("CARGO_MANIFEST_DIR"))
             .parent()
             .and_then(|path| path.parent())
             .unwrap_or_else(|| Path::new("/"))
-            .join("target/wasm32-unknown-unknown/release/nodejs.wasm")
+            .join(format!("target/wasm32-unknown-unknown/release/{name}.wasm"))
     }
 
-    fn instantiate_host_test_module(engine: &Engine, pwd: &Path) -> (Store<HostState>, Instance) {
-        let module = Module::new(engine, HOST_TEST_WAT).expect("host test module compiles");
-        let linker = create_linker(engine).expect("linker compiles");
-        let mut store = Store::new(
-            engine,
-            HostState {
-                pwd: pwd.to_path_buf(),
-            },
-        );
-        let instance = linker
-            .instantiate(&mut store, &module)
-            .expect("host test module instantiates");
-        (store, instance)
-    }
-
-    fn write_json<T: Serialize>(
-        instance: &Instance,
-        store: &mut Store<HostState>,
-        value: &T,
-    ) -> u64 {
-        let bytes = serde_json::to_vec(value).expect("json serializes");
-        let alloc = instance
-            .get_typed_func::<u32, u32>(&mut *store, "alloc")
-            .expect("alloc export exists");
-        let ptr = alloc
-            .call(&mut *store, bytes.len() as u32)
-            .expect("alloc succeeds");
-        let memory = instance
-            .get_memory(&mut *store, "memory")
-            .expect("memory export exists");
-        memory
-            .write(&mut *store, ptr as usize, &bytes)
-            .expect("memory write succeeds");
-        into_bitwise(ptr, bytes.len() as u32)
-    }
-
-    fn read_json<T: DeserializeOwned>(
-        instance: &Instance,
-        store: &mut Store<HostState>,
-        packed: u64,
-    ) -> T {
-        let (ptr, len) = from_bitwise(packed);
-        let ptr = ptr as usize;
-        let len = len as usize;
-        let memory = instance
-            .get_memory(&mut *store, "memory")
-            .expect("memory export exists");
-        let bytes = memory.data(&*store)[ptr..(ptr + len)].to_vec();
-        let dealloc = instance
-            .get_typed_func::<u64, ()>(&mut *store, "dealloc")
-            .expect("dealloc export exists");
-        dealloc.call(&mut *store, packed).expect("dealloc succeeds");
-        serde_json::from_slice(&bytes).expect("json deserializes")
+    fn load_test_plugin(pwd: &Path) -> WasmPlugin {
+        let bytes = std::fs::read(wasm_path("starship_plugin_test_harness"))
+            .expect("test-harness.wasm should exist (built by build.rs)");
+        let engine = Engine::default();
+        WasmPlugin::load(&engine, &bytes, pwd).expect("test plugin should load")
     }
 
     #[test]
@@ -443,32 +357,14 @@ mod tests {
     }
 
     #[test]
-    fn wasm_plugin_loads_and_returns_name() {
-        let wasm_path = nodejs_wasm_path();
-        if !wasm_path.exists() {
-            eprintln!("Skipping: nodejs.wasm not found at {:?}", wasm_path);
-            return;
-        }
-
-        let bytes = std::fs::read(&wasm_path).expect("nodejs wasm can be read");
-        let engine = Engine::default();
-        let plugin =
-            WasmPlugin::load(&engine, &bytes, Path::new("/tmp")).expect("plugin should load");
-        assert_eq!(plugin.name(), "nodejs");
+    fn plugin_loads_and_returns_name() {
+        let plugin = load_test_plugin(Path::new("/tmp"));
+        assert_eq!(plugin.name(), "test");
     }
 
     #[test]
-    fn wasm_plugin_unknown_method_returns_null() {
-        let wasm_path = nodejs_wasm_path();
-        if !wasm_path.exists() {
-            eprintln!("Skipping: nodejs.wasm not found at {:?}", wasm_path);
-            return;
-        }
-
-        let bytes = std::fs::read(&wasm_path).expect("nodejs wasm can be read");
-        let engine = Engine::default();
-        let mut plugin =
-            WasmPlugin::load(&engine, &bytes, Path::new("/tmp")).expect("plugin should load");
+    fn unknown_method_returns_null() {
+        let mut plugin = load_test_plugin(Path::new("/tmp"));
         let result = plugin
             .call_method("does_not_exist")
             .expect("call_method should return a value");
@@ -484,64 +380,35 @@ mod tests {
     }
 
     #[test]
-    fn host_get_env_reads_env_variable() {
-        let engine = Engine::default();
-        let (mut store, instance) = instantiate_host_test_module(&engine, Path::new("/tmp"));
-
-        let packed_name = write_json(&instance, &mut store, &"PATH".to_string());
-        let call = instance
-            .get_typed_func::<u64, u64>(&mut store, "call_get_env")
-            .expect("call_get_env export exists");
-        let packed_result = call
-            .call(&mut store, packed_name)
-            .expect("call_get_env succeeds");
-        let result: Option<String> = read_json(&instance, &mut store, packed_result);
-        assert!(result.is_some());
+    fn host_get_env() {
+        let mut plugin = load_test_plugin(Path::new("/tmp"));
+        let result = plugin
+            .call_method("home")
+            .expect("call_method should succeed");
+        assert!(result.is_string(), "HOME should be a string, got: {result}");
     }
 
     #[test]
-    fn host_exec_runs_command_in_pwd() {
+    fn host_exec() {
         let dir = tempdir().expect("tempdir should be created");
-        let engine = Engine::default();
-        let (mut store, instance) = instantiate_host_test_module(&engine, dir.path());
-
-        let request = ("pwd".to_string(), Vec::<String>::new());
-        let packed_request = write_json(&instance, &mut store, &request);
-        let call = instance
-            .get_typed_func::<u64, u64>(&mut store, "call_exec")
-            .expect("call_exec export exists");
-        let packed_result = call
-            .call(&mut store, packed_request)
-            .expect("call_exec succeeds");
-        let result: Option<String> = read_json(&instance, &mut store, packed_result);
-        let output = result.expect("exec should produce stdout");
-        let actual = std::fs::canonicalize(output.trim()).expect("pwd output resolves");
+        let mut plugin = load_test_plugin(dir.path());
+        let result = plugin
+            .call_method("pwd")
+            .expect("call_method should succeed");
+        let output = result.as_str().expect("pwd should return a string");
+        let actual = std::fs::canonicalize(output).expect("pwd output resolves");
         let expected = std::fs::canonicalize(dir.path()).expect("tempdir path resolves");
         assert_eq!(actual, expected);
     }
 
     #[test]
-    fn host_file_exists_checks_relative_to_pwd() {
+    fn is_active_reflects_file_exists() {
         let dir = tempdir().expect("tempdir should be created");
-        let existing = dir.path().join("exists.txt");
-        std::fs::write(&existing, "ok").expect("fixture file should be created");
 
-        let engine = Engine::default();
-        let (mut store, instance) = instantiate_host_test_module(&engine, dir.path());
+        let mut plugin = load_test_plugin(dir.path());
+        assert!(!plugin.is_active(), "no marker file = inactive");
 
-        let packed_existing = write_json(&instance, &mut store, &"exists.txt".to_string());
-        let call = instance
-            .get_typed_func::<u64, u32>(&mut store, "call_file_exists")
-            .expect("call_file_exists export exists");
-        let exists = call
-            .call(&mut store, packed_existing)
-            .expect("call_file_exists succeeds");
-        assert_eq!(exists, 1);
-
-        let packed_missing = write_json(&instance, &mut store, &"missing.txt".to_string());
-        let missing = call
-            .call(&mut store, packed_missing)
-            .expect("call_file_exists succeeds for missing file");
-        assert_eq!(missing, 0);
+        std::fs::write(dir.path().join(".starship-test-marker"), "").unwrap();
+        assert!(plugin.is_active(), "marker file present = active");
     }
 }
