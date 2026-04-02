@@ -149,7 +149,7 @@ fn read_packed_bytes(
 impl WasmPlugin {
     /// Loads a WASM plugin from compiled bytes.
     ///
-    /// Links host functions (get_env, exec, file_exists), instantiates the module,
+    /// Links host functions (`get_env`, `exec`, `file_exists`), instantiates the module,
     /// reads the plugin name, and creates a guest-side instance handle.
     pub fn load(engine: &Engine, wasm_bytes: &[u8], pwd: &Path) -> Result<Self> {
         let module = Module::new(engine, wasm_bytes)?;
