@@ -79,7 +79,8 @@ fn host_exec(caller: &mut Caller<'_, HostState>, packed: u64) -> Result<u64> {
         .output();
     let result: Option<String> = output
         .ok()
-        .map(|value| String::from_utf8_lossy(&value.stdout).to_string());
+        .filter(|o| o.status.success())
+        .map(|o| String::from_utf8_lossy(&o.stdout).to_string());
     let json = serde_json::to_vec(&result)?;
     write_guest_bytes(caller, &json)
 }
