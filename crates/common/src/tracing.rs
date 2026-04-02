@@ -17,7 +17,10 @@ pub fn init_tracing() -> Option<impl Drop> {
     }
 
     tracing_subscriber::fmt()
-        .with_max_level(tracing::Level::DEBUG)
+        .with_env_filter(
+            tracing_subscriber::EnvFilter::try_from_default_env()
+                .unwrap_or_else(|_| "starship=debug,warn".parse().unwrap()),
+        )
         .pretty()
         .init();
     None
