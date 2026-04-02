@@ -15,4 +15,17 @@ jobs:
       - uses: moonrepo/setup-rust@v1
         with:
           channel: stable
+          targets: wasm32-unknown-unknown
       - run: cargo test
+
+  clippy:
+    name: Clippy
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: moonrepo/setup-rust@v1
+        with:
+          channel: stable
+          components: clippy
+          targets: wasm32-unknown-unknown
+      - run: cargo clippy --workspace -- -D warnings
