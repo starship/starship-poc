@@ -1,4 +1,8 @@
 local version = nodejs and nodejs.version
-local prefix = version and green("node:" .. version .. " ") or ""
+local pwd = ctx.pwd or ""
 
-return { format = prefix .. (ctx.pwd or "") .. " ❯ " }
+if version then
+    return { format = green("node:" .. version) .. " " .. pwd .. " ❯ " }
+end
+
+return { format = pwd .. " ❯ " }

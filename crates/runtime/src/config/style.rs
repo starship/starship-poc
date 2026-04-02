@@ -85,7 +85,25 @@ fn collect_children(args: MultiValue) -> LuaResult<Vec<StyledContent>> {
 
 /// Wrapper for `StyledContent`, enabling it to be used in Lua.
 pub struct LuaStyledContent(pub StyledContent);
-impl UserData for LuaStyledContent {}
+impl UserData for LuaStyledContent {
+    fn add_methods<M: mlua::UserDataMethods<Self>>(methods: &mut M) {
+        methods.add_meta_method("__concat", |_, this, other: Value| {
+            let right = match other {
+                Value::String(s) => StyledContent::Text(s.to_str()?.to_string()),
+                Value::UserData(ud) => ud.borrow::<LuaStyledContent>()?.0.clone(),
+                _ => {
+                    return Err(mlua::Error::RuntimeError(
+                        "cannot concatenate with non-string/StyledContent".to_string(),
+                    ))
+                }
+            };
+            Ok(LuaStyledContent(StyledContent::Styled {
+                style: Style::default(),
+                children: vec![this.0.clone(), right],
+            }))
+        });
+    }
+}
 impl From<LuaStyledContent> for StyledContent {
     fn from(val: LuaStyledContent) -> Self {
         val.0
