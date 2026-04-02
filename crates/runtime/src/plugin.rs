@@ -1,4 +1,4 @@
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 
@@ -17,6 +17,7 @@ pub struct WasmPlugin {
     instance: Instance,
     name: String,
     handle: u32,
+    is_active: Cell<Option<bool>>,
 }
 
 fn caller_memory(caller: &mut Caller<'_, HostState>) -> Result<wasmtime::Memory> {
@@ -166,6 +167,7 @@ impl WasmPlugin {
             instance,
             name,
             handle,
+            is_active: Cell::new(None),
         })
     }
 
@@ -176,6 +178,7 @@ impl WasmPlugin {
 
     pub fn update_context(&mut self, pwd: &Path) {
         self.store.data_mut().pwd = pwd.to_path_buf();
+        self.is_active.set(None);
     }
 
     pub fn is_active(&mut self) -> bool {
@@ -275,7 +278,12 @@ pub fn register_plugin(lua: &Lua, plugin: Rc<RefCell<WasmPlugin>>) -> mlua::Resu
         "__index",
         lua.create_function(move |lua, (_table, key): (Table, String)| {
             let mut plugin = plugin.borrow_mut();
-            if !plugin.is_active() {
+            let active = plugin.is_active.get().unwrap_or_else(|| {
+                let v = plugin.is_active();
+                plugin.is_active.set(Some(v));
+                v
+            });
+            if !active {
                 return Ok(mlua::Value::Nil);
             }
             let result = plugin
