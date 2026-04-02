@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["crates/*", "benches"]
+members = ["crates/*", "plugins/*", "benches"]
 
 [workspace.dependencies]
 anstyle = "1.0"

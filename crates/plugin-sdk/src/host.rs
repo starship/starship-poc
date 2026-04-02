@@ -1,0 +1,39 @@
+//! Host functions for querying the daemon.
+
+#[cfg(target_arch = "wasm32")]
+use crate::{read_msg, write_msg};
+
+#[cfg(target_arch = "wasm32")]
+unsafe extern "C" {
+    fn _plugin_host_get_env(packed: u64) -> u64;
+    fn _plugin_host_exec(packed: u64) -> u64;
+}
+
+pub fn get_env(name: &str) -> Option<String> {
+    #[cfg(target_arch = "wasm32")]
+    {
+        let packed_input = write_msg(&name.to_string());
+        let packed_output = unsafe { _plugin_host_get_env(packed_input) };
+        unsafe { read_msg(packed_output) }
+    }
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        let _ = name;
+        panic!("host functions only available in WASM");
+    }
+}
+
+pub fn exec(cmd: &str, args: &[&str]) -> Option<String> {
+    #[cfg(target_arch = "wasm32")]
+    {
+        let request = (cmd, args);
+        let packed_input = write_msg(&request);
+        let packed_output = unsafe { _plugin_host_exec(packed_input) };
+        unsafe { read_msg(packed_output) }
+    }
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        let _ = (cmd, args);
+        panic!("host functions only available in WASM");
+    }
+}

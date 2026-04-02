@@ -1,0 +1,9 @@
+[package]
+name = "starship-plugin-sdk"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+starship-plugin-core = { path = "../plugin-core" }
+starship-plugin-macros = { path = "../plugin-macros" }
+serde_json = { workspace = true }

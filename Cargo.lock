@@ -943,6 +943,33 @@ dependencies = [
 ]
 
 [[package]]
+name = "starship-plugin-macros"
+version = "0.1.0"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn",
+]
+
+[[package]]
+name = "starship-plugin-nodejs"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "starship-plugin-sdk",
+]
+
+[[package]]
+name = "starship-plugin-sdk"
+version = "0.1.0"
+dependencies = [
+ "serde_json",
+ "starship-plugin-core",
+ "starship-plugin-macros",
+]
+
+[[package]]
 name = "starship-runtime"
 version = "0.1.0"
 dependencies = [
