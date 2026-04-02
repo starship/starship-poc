@@ -51,11 +51,99 @@ mod tests {
 
         let (client, server) = UnixStream::pair().unwrap();
         std::thread::scope(|s| {
-            s.spawn(|| handle_client(server, &mut loader).unwrap());
-            assert_eq!(
-                starship::run(client, &ctx).unwrap(),
-                "\x1b[32m/tmp $ \x1b[0m"
+            let handle = s.spawn(|| starship::run(client, &ctx).unwrap());
+            handle_client(server, &mut loader).unwrap();
+            assert_eq!(handle.join().unwrap(), "\x1b[32m/tmp $ \x1b[0m");
+        });
+    }
+
+    fn nodejs_wasm_path() -> PathBuf {
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .and_then(|p| p.parent())
+            .unwrap_or(std::path::Path::new("/"))
+            .join("target/wasm32-unknown-unknown/release/nodejs.wasm")
+    }
+
+    #[test]
+    fn daemon_serves_prompt_with_plugin_data() {
+        let wasm_path = nodejs_wasm_path();
+        if !wasm_path.exists() {
+            eprintln!("Skipping: nodejs.wasm not found at {wasm_path:?}");
+            return;
+        }
+
+        let bytes = std::fs::read(&wasm_path).expect("nodejs wasm readable");
+        let engine = wasmtime::Engine::default();
+
+        let dir = tempfile::tempdir().expect("tempdir");
+        std::fs::write(dir.path().join("package.json"), "{}").expect("write package.json");
+
+        let plugin = starship_runtime::plugin::WasmPlugin::load(&engine, &bytes, dir.path())
+            .expect("plugin loads");
+
+        let mut loader = ConfigLoader::from_source_with_plugins(
+            r#"return { format = "node:" .. (nodejs.version or "none") }"#,
+            vec![plugin],
+        )
+        .expect("loader with plugin");
+
+        let ctx = ShellContext {
+            pwd: Some(dir.path().to_path_buf()),
+            user: Some("test".into()),
+        };
+
+        let (client, server) = UnixStream::pair().unwrap();
+        std::thread::scope(|s| {
+            let handle = s.spawn(|| starship::run(client, &ctx).unwrap());
+            handle_client(server, &mut loader).unwrap();
+            let result = handle.join().unwrap();
+            assert!(
+                result.starts_with("node:"),
+                "Expected 'node:' prefix, got: {result}"
             );
+            assert!(
+                result.len() > 5,
+                "Expected version string after 'node:', got: {result}"
+            );
+        });
+    }
+
+    #[test]
+    fn plugin_method_returns_nil_when_not_applicable() {
+        let wasm_path = nodejs_wasm_path();
+        if !wasm_path.exists() {
+            eprintln!("Skipping: nodejs.wasm not found at {wasm_path:?}");
+            return;
+        }
+
+        let bytes = std::fs::read(&wasm_path).expect("nodejs wasm readable");
+        let engine = wasmtime::Engine::default();
+
+        let plugin = starship_runtime::plugin::WasmPlugin::load(
+            &engine,
+            &bytes,
+            std::path::Path::new("/tmp"),
+        )
+        .expect("plugin loads");
+
+        let mut loader = ConfigLoader::from_source_with_plugins(
+            r#"return { format = nodejs.version or "no-node" }"#,
+            vec![plugin],
+        )
+        .expect("loader with plugin");
+
+        let ctx = ShellContext {
+            pwd: Some(PathBuf::from("/tmp")),
+            user: Some("test".into()),
+        };
+
+        let (client, server) = UnixStream::pair().unwrap();
+        std::thread::scope(|s| {
+            let handle = s.spawn(|| starship::run(client, &ctx).unwrap());
+            handle_client(server, &mut loader).unwrap();
+            let result = handle.join().unwrap();
+            assert!(!result.is_empty(), "Expected non-empty result");
         });
     }
 }
