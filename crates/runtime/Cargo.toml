@@ -10,8 +10,10 @@ tracing = { workspace = true }
 serde = { workspace = true }
 serde_json = "1.0"
 starship-common = { workspace = true }
-mlua = { version = "0.11", features = ["luau", "serde", "error-send", "send"] }
+mlua = { version = "0.11", features = ["luau", "serde", "error-send"] }
 phf = "0.11"
+wasmtime = "43.0.0"
+starship-plugin-core = { version = "0.0.0", path = "../plugin-core" }
 
 [lints]
 workspace = true
