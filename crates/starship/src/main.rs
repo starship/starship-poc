@@ -5,8 +5,6 @@ use starship_runtime::{Config, ConfigLoader};
 use std::process::Command;
 use std::thread;
 use std::time::Duration;
-use tracing::instrument;
-
 #[derive(Parser)]
 struct Args {
     /// Run without connecting to the daemon
@@ -14,9 +12,9 @@ struct Args {
     no_daemon: bool,
 }
 
-#[instrument]
 fn main() -> Result<()> {
     let _guard = init_tracing();
+    let _span = tracing::info_span!("main").entered();
     let args = Args::parse();
     let ctx = construct_shell_context();
 
