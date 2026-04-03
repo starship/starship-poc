@@ -3,7 +3,7 @@ use divan::{black_box, Bencher};
 use starship_common::{render_prompt, ShellContext};
 use starship_daemon::handle_client;
 use starship_runtime::plugin::test_helpers::PluginFixture;
-use starship_runtime::plugin::WasmPlugin;
+use starship_runtime::plugin::{Engine, WasmPlugin};
 use starship_runtime::ConfigLoader;
 use std::path::Path;
 use std::{os::unix::net::UnixStream, path::PathBuf};
