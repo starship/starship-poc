@@ -28,7 +28,9 @@ jobs:
       - uses: actions/upload-artifact@v7
         with:
           name: codspeed-walltime
-          path: target/codspeed
+          path: |
+            target/codspeed
+            target/wasm32-unknown-unknown/release/*.wasm
           if-no-files-found: error
           retention-days: 1
 
@@ -48,7 +50,9 @@ jobs:
       - uses: actions/upload-artifact@v7
         with:
           name: codspeed-memory
-          path: target/codspeed
+          path: |
+            target/codspeed
+            target/wasm32-unknown-unknown/release/*.wasm
           if-no-files-found: error
           retention-days: 1
 
@@ -65,7 +69,6 @@ jobs:
       - uses: actions/download-artifact@v8
         with:
           name: codspeed-walltime
-          path: target/codspeed
       - run: find target/codspeed -type f -exec chmod +x {} +
       - uses: CodSpeedHQ/action@v4
         with:
@@ -85,7 +88,6 @@ jobs:
       - uses: actions/download-artifact@v8
         with:
           name: codspeed-memory
-          path: target/codspeed
       - run: find target/codspeed -type f -exec chmod +x {} +
       - uses: CodSpeedHQ/action@v4
         with:
