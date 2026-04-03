@@ -7,10 +7,19 @@ use mlua::{Lua, LuaSerdeExt, Table};
 use serde_json::Value;
 use starship_plugin_core::{from_bitwise, into_bitwise};
 use tracing::instrument;
-use wasmtime::{Caller, Engine, Instance, Linker, Module, Store};
+use wasmtime::{Caller, Engine, Linker, Memory, Module, Store, TypedFunc};
 
 struct HostState {
     pwd: PathBuf,
+}
+
+struct GuestExports {
+    memory: Memory,
+    alloc: TypedFunc<u32, u32>,
+    dealloc: TypedFunc<u64, ()>,
+    call: TypedFunc<(u32, u64), u64>,
+    is_active: Option<TypedFunc<u32, u64>>,
+    drop: Option<TypedFunc<u32, ()>>,
 }
 
 /// A loaded WASM plugin instance backed by wasmtime.
@@ -20,7 +29,7 @@ struct HostState {
 /// to this struct — dropping it calls `_plugin_drop` in the guest.
 pub struct WasmPlugin {
     store: Store<HostState>,
-    instance: Instance,
+    exports: GuestExports,
     name: String,
     handle: u32,
     is_active: Cell<Option<bool>>,
@@ -135,20 +144,6 @@ fn create_linker(engine: &Engine) -> Result<Linker<HostState>> {
     Ok(linker)
 }
 
-fn read_packed_bytes(
-    instance: &Instance,
-    store: &mut Store<HostState>,
-    packed: u64,
-) -> Result<Vec<u8>> {
-    let (ptr, len) = from_bitwise(packed);
-    let memory = instance
-        .get_memory(&mut *store, "memory")
-        .ok_or_else(|| anyhow!("missing memory export"))?;
-    let mut buf = vec![0u8; len as usize];
-    memory.read(&*store, ptr as usize, &mut buf)?;
-    Ok(buf)
-}
-
 impl WasmPlugin {
     /// Loads a WASM plugin by compiling bytes and instantiating the module.
     ///
@@ -172,11 +167,24 @@ impl WasmPlugin {
         );
         let instance = tracing::info_span!("instantiate")
             .in_scope(|| linker.instantiate(&mut store, module))?;
+
+        let exports = GuestExports {
+            memory: instance
+                .get_memory(&mut store, "memory")
+                .ok_or_else(|| anyhow!("missing memory export"))?,
+            alloc: instance.get_typed_func(&mut store, "alloc")?,
+            dealloc: instance.get_typed_func(&mut store, "dealloc")?,
+            call: instance.get_typed_func(&mut store, "_plugin_call")?,
+            is_active: instance
+                .get_typed_func(&mut store, "_plugin_is_active")
+                .ok(),
+            drop: instance.get_typed_func(&mut store, "_plugin_drop").ok(),
+        };
+
         let name_func = instance.get_typed_func::<(), u64>(&mut store, "_plugin_name")?;
         let name_packed = name_func.call(&mut store, ())?;
-        let name_bytes = read_packed_bytes(&instance, &mut store, name_packed)?;
-        let dealloc = instance.get_typed_func::<u64, ()>(&mut store, "dealloc")?;
-        dealloc.call(&mut store, name_packed)?;
+        let name_bytes = Self::read_guest_bytes_raw(&exports, &store, name_packed)?;
+        exports.dealloc.call(&mut store, name_packed)?;
         let name: String = serde_json::from_slice(&name_bytes)?;
 
         let new_func = instance.get_typed_func::<(), u32>(&mut store, "_plugin_new")?;
@@ -184,7 +192,7 @@ impl WasmPlugin {
 
         Ok(Self {
             store,
-            instance,
+            exports,
             name,
             handle,
             is_active: Cell::new(None),
@@ -214,30 +222,17 @@ impl WasmPlugin {
     }
 
     fn is_active_uncached(&mut self) -> bool {
-        let Ok(func) = self
-            .instance
-            .get_typed_func::<u32, u64>(&mut self.store, "_plugin_is_active")
-        else {
+        let Some(func) = self.exports.is_active.clone() else {
             return true;
         };
         let Ok(packed) = func.call(&mut self.store, self.handle) else {
             return true;
         };
-        let (ptr, len) = from_bitwise(packed);
-        let Some(memory) = self.instance.get_memory(&mut self.store, "memory") else {
+        let Ok(bytes) = self.read_guest_bytes(packed) else {
             return true;
         };
-        let mut buf = vec![0u8; len as usize];
-        if memory.read(&self.store, ptr as usize, &mut buf).is_err() {
-            return true;
-        }
-        if let Ok(dealloc) = self
-            .instance
-            .get_typed_func::<u64, ()>(&mut self.store, "dealloc")
-        {
-            let _ = dealloc.call(&mut self.store, packed);
-        }
-        serde_json::from_slice::<bool>(&buf).unwrap_or(true)
+        let _ = self.exports.dealloc.call(&mut self.store, packed);
+        serde_json::from_slice::<bool>(&bytes).unwrap_or(true)
     }
 
     /// Calls a named accessor method on the plugin via `_plugin_call`.
@@ -246,25 +241,12 @@ impl WasmPlugin {
     /// The caller is responsible for converting the JSON value to the desired type.
     #[instrument(skip(self), fields(plugin = %self.name))]
     pub fn call_method(&mut self, method: &str) -> Result<Value> {
-        let method_json = serde_json::to_vec(&method)?;
-
-        let alloc = self
-            .instance
-            .get_typed_func::<u32, u32>(&mut self.store, "alloc")?;
-        #[allow(clippy::cast_possible_truncation)]
-        let method_len = method_json.len() as u32;
-        let ptr = alloc.call(&mut self.store, method_len)?;
-        let memory = self
-            .instance
-            .get_memory(&mut self.store, "memory")
-            .ok_or_else(|| anyhow!("missing memory export"))?;
-        memory.write(&mut self.store, ptr as usize, &method_json)?;
-
-        let packed_method = into_bitwise(ptr, method_len);
-        let call = self
-            .instance
-            .get_typed_func::<(u32, u64), u64>(&mut self.store, "_plugin_call")?;
-        let packed_result = match call.call(&mut self.store, (self.handle, packed_method)) {
+        let packed_method = self.write_guest_bytes(&serde_json::to_vec(&method)?)?;
+        let packed_result = match self
+            .exports
+            .call
+            .call(&mut self.store, (self.handle, packed_method))
+        {
             Ok(value) => value,
             Err(err) => {
                 tracing::error!(
@@ -277,21 +259,40 @@ impl WasmPlugin {
             }
         };
 
-        let result_bytes = read_packed_bytes(&self.instance, &mut self.store, packed_result)?;
-        let dealloc = self
-            .instance
-            .get_typed_func::<u64, ()>(&mut self.store, "dealloc")?;
-        dealloc.call(&mut self.store, packed_result)?;
+        let result_bytes = self.read_guest_bytes(packed_result)?;
+        self.exports.dealloc.call(&mut self.store, packed_result)?;
         Ok(serde_json::from_slice(&result_bytes)?)
+    }
+
+    fn read_guest_bytes(&self, packed: u64) -> Result<Vec<u8>> {
+        Self::read_guest_bytes_raw(&self.exports, &self.store, packed)
+    }
+
+    fn read_guest_bytes_raw(
+        exports: &GuestExports,
+        store: &Store<HostState>,
+        packed: u64,
+    ) -> Result<Vec<u8>> {
+        let (ptr, len) = from_bitwise(packed);
+        let mut buf = vec![0u8; len as usize];
+        exports.memory.read(store, ptr as usize, &mut buf)?;
+        Ok(buf)
+    }
+
+    fn write_guest_bytes(&mut self, bytes: &[u8]) -> Result<u64> {
+        #[allow(clippy::cast_possible_truncation)]
+        let len = bytes.len() as u32;
+        let ptr = self.exports.alloc.call(&mut self.store, len)?;
+        self.exports
+            .memory
+            .write(&mut self.store, ptr as usize, bytes)?;
+        Ok(into_bitwise(ptr, len))
     }
 }
 
 impl Drop for WasmPlugin {
     fn drop(&mut self) {
-        if let Ok(drop_fn) = self
-            .instance
-            .get_typed_func::<u32, ()>(&mut self.store, "_plugin_drop")
-        {
+        if let Some(drop_fn) = self.exports.drop.clone() {
             let _ = drop_fn.call(&mut self.store, self.handle);
         }
     }
