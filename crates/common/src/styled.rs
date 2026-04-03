@@ -66,7 +66,7 @@ impl Style {
     /// Merge with a parent style. Self (inner) takes precedence for colors;
     /// boolean effects are combined with OR.
     #[must_use]
-    pub fn merge(mut self, parent: &Style) -> Style {
+    pub fn merge(mut self, parent: &Self) -> Self {
         self.fg = self.fg.or(parent.fg);
         self.bg = self.bg.or(parent.bg);
         self.bold = self.bold || parent.bold;

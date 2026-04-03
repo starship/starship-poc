@@ -344,7 +344,7 @@ mod tests {
         for expr in [
             r#"io.open("nope.txt")"#,
             r#"os.execute("echo pwned")"#,
-            r#"debug.getinfo(1)"#,
+            r"debug.getinfo(1)",
             r#"loadfile("nope.lua")"#,
             r#"dofile("nope.lua")"#,
         ] {
@@ -409,7 +409,7 @@ mod tests {
 
     #[test]
     fn compact_all_nil_returns_empty() {
-        assert_eq!(render(r#"return { format = compact(nil, nil) }"#), "");
+        assert_eq!(render(r"return { format = compact(nil, nil) }"), "");
     }
 
     #[test]
@@ -436,7 +436,7 @@ mod tests {
     #[test]
     fn stdlib_globals_resolve_through_env() {
         assert_eq!(
-            render(r#"return { format = tostring(math.max(1, 2)) }"#),
+            render(r"return { format = tostring(math.max(1, 2)) }"),
             "2",
         );
     }

@@ -396,6 +396,8 @@ pub mod test_helpers {
     }
 
     impl PluginFixture {
+        #[must_use]
+        #[allow(clippy::missing_panics_doc)]
         pub fn from_wasm(bytes: &[u8]) -> Self {
             let dir = tempfile::TempDir::new().expect("tempdir");
             let path = dir.path().to_path_buf();
@@ -427,12 +429,13 @@ pub mod test_helpers {
             self.plugin.is_active()
         }
 
+        #[allow(clippy::missing_panics_doc)]
         pub fn render(&mut self, lua_expr: &str) -> String {
             use crate::config::{Config, ConfigLoader};
             use starship_common::ShellContext;
 
             self.plugin.update_context(&self.dir.clone());
-            let lua_src = format!(r#"return {{ format = {lua_expr} }}"#);
+            let lua_src = format!(r"return {{ format = {lua_expr} }}");
             let mut loader =
                 ConfigLoader::from_source_with_plugins(&lua_src, vec![self.plugin_for_loader()])
                     .expect("loader should build");
@@ -493,7 +496,7 @@ mod tests {
     #[test]
     fn plugin_loads_and_returns_name() {
         let mut plugin = plugin_fixture!();
-        assert_eq!(plugin.get("home").is_some(), true);
+        assert!(plugin.get("home").is_some());
     }
 
     #[test]
