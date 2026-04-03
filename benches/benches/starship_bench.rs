@@ -47,11 +47,21 @@ fn context() -> ShellContext {
 }
 
 fn wasm_bytes() -> Vec<u8> {
-    let path = Path::new(env!("CARGO_MANIFEST_DIR"))
+    let compile_time = Path::new(env!("CARGO_MANIFEST_DIR"))
         .parent()
         .unwrap()
-        .join("target/wasm32-unknown-unknown/release/starship_plugin_test_harness.wasm");
-    std::fs::read(path).expect("test-harness wasm should exist (built by build.rs)")
+        .join(
+            "target/wasm-plugins/wasm32-unknown-unknown/release/starship_plugin_test_harness.wasm",
+        );
+    let path = if compile_time.exists() {
+        compile_time
+    } else {
+        std::env::current_dir().unwrap_or_default().join(
+            "target/wasm-plugins/wasm32-unknown-unknown/release/starship_plugin_test_harness.wasm",
+        )
+    };
+    std::fs::read(&path)
+        .unwrap_or_else(|_| panic!("test-harness wasm should exist at {}", path.display()))
 }
 
 // --- Socket-based benchmark (end-to-end with IPC) ---

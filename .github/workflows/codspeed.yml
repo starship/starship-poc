@@ -30,7 +30,7 @@ jobs:
           name: codspeed-walltime
           path: |
             target/codspeed
-            target/wasm32-unknown-unknown/release/*.wasm
+            target/wasm-plugins
           if-no-files-found: error
           retention-days: 1
 
@@ -52,7 +52,7 @@ jobs:
           name: codspeed-memory
           path: |
             target/codspeed
-            target/wasm32-unknown-unknown/release/*.wasm
+            target/wasm-plugins
           if-no-files-found: error
           retention-days: 1
 
