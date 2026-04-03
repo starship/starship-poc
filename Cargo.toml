@@ -3,8 +3,8 @@ resolver = "2"
 members = ["crates/*", "plugins/*", "benches"]
 
 [workspace.dependencies]
-anstyle = "1.0"
 anyhow = "1.0"
+owo-colors = "4.3.0"
 tracing = "0.1"
 tracing-subscriber = "0.3"
 tracing-profile = "0.10"
