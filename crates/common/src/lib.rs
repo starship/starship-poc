@@ -5,7 +5,8 @@ pub mod styled;
 mod tracing;
 
 pub use context::ShellContext;
-pub use render::render_prompt;
+pub use owo_colors;
+pub use render::{paint, render_prompt};
 pub use tracing::init_tracing;
 
 use anyhow::{Context, Result};

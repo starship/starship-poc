@@ -1,5 +1,5 @@
 use crate::config::nerd_font::register_icon_function;
-use crate::config::style::{register_style_functions, LuaStyledContent};
+use crate::config::style::{register_compact_function, register_style_functions, LuaStyledContent};
 use crate::plugin::{load_plugins, register_plugin, WasmPlugin};
 use anyhow::Result;
 use mlua::{FromLua, Lua, LuaOptions, LuaSerdeExt, SerializeOptions, StdLib};
@@ -172,6 +172,7 @@ fn create_lua() -> Result<Lua> {
     let lua = Lua::new_with(StdLib::ALL_SAFE, LuaOptions::default())?;
     lua.sandbox(true)?;
     register_style_functions(&lua)?;
+    register_compact_function(&lua)?;
     register_icon_function(&lua)?;
     Ok(lua)
 }
@@ -192,7 +193,8 @@ fn get_config_path() -> Result<PathBuf> {
 mod tests {
     use super::*;
     use anyhow::Result;
-    use starship_common::styled::{Color, StyledContent};
+    use starship_common::owo_colors::style;
+    use starship_common::render::{paint, render_prompt};
 
     fn ctx(pwd: Option<&str>, user: Option<&str>) -> ShellContext {
         ShellContext {
@@ -201,66 +203,52 @@ mod tests {
         }
     }
 
-    fn try_eval(source: &str, context: &ShellContext) -> Result<Config> {
+    fn try_render(source: &str, context: &ShellContext) -> Result<String> {
         let mut loader = ConfigLoader::from_source(source)?;
-        let func = loader.load(context)?;
-        Ok(func.call(())?)
-    }
-
-    fn eval_text(loader: &mut ConfigLoader, context: &ShellContext) -> Result<String> {
         let output: Config = loader.load(context)?.call(())?;
-        let StyledContent::Text(text) = output.format else {
-            anyhow::bail!("expected Text, got {:?}", output.format);
-        };
-        Ok(text)
+        Ok(render_prompt(&output.format))
     }
 
-    fn eval(source: &str) -> Config {
-        try_eval(source, &ctx(Some("/tmp/test"), Some("testuser"))).unwrap()
+    fn render(source: &str) -> String {
+        try_render(source, &ctx(Some("/tmp/test"), Some("testuser"))).expect("render failed")
+    }
+
+    fn render_reloadable(loader: &mut ConfigLoader, context: &ShellContext) -> Result<String> {
+        let output: Config = loader.load(context)?.call(())?;
+        Ok(render_prompt(&output.format))
     }
 
     #[test]
     fn config_interpolates_context_values() {
-        let output = eval(r#"return { format = ctx.pwd .. " " .. ctx.user .. " $ " }"#);
-
-        let StyledContent::Text(text) = &output.format else {
-            panic!("expected Text, got {:?}", output.format);
-        };
-        assert_eq!(text, "/tmp/test testuser $ ");
+        assert_eq!(
+            render(r#"return { format = ctx.pwd .. " " .. ctx.user .. " $ " }"#),
+            "/tmp/test testuser $ ",
+        );
     }
 
     #[test]
     fn color_fns_wrap_text_in_styled_node() {
-        let output = eval(r#"return { format = green("hello") }"#);
-
-        let StyledContent::Styled { style, children } = &output.format else {
-            panic!("expected Styled, got {:?}", output.format);
-        };
-        assert_eq!(style.fg, Some(Color::Green));
-        assert_eq!(children.len(), 1);
+        assert_eq!(
+            render(r#"return { format = green("hello") }"#),
+            paint("hello", style().green()),
+        );
     }
 
     #[test]
     fn icon_fn_resolves_to_glyph() {
-        let output = eval(r#"return { format = icon("cod-git_commit") }"#);
-
-        let StyledContent::Text(text) = &output.format else {
-            panic!("expected Text, got {:?}", output.format);
-        };
-        assert!(!text.is_empty(), "icon should resolve to a glyph");
+        let output = render(r#"return { format = icon("cod-git_commit") }"#);
+        assert!(!output.is_empty(), "icon should resolve to a glyph");
     }
 
     #[test]
     fn none_context_fields_are_nil_in_lua() -> Result<()> {
-        let output = try_eval(
-            r#"return { format = ctx.pwd and "truthy" or "nil" }"#,
-            &ctx(None, None),
-        )?;
-
-        let StyledContent::Text(text) = &output.format else {
-            panic!("expected Text, got {:?}", output.format);
-        };
-        assert_eq!(text, "nil");
+        assert_eq!(
+            try_render(
+                r#"return { format = ctx.pwd and "truthy" or "nil" }"#,
+                &ctx(None, None),
+            )?,
+            "nil",
+        );
         Ok(())
     }
 
@@ -276,7 +264,7 @@ mod tests {
         ] {
             let source = format!(r#"{expr}; return {{ format = "x" }}"#);
             assert!(
-                try_eval(&source, c).is_err(),
+                try_render(&source, c).is_err(),
                 "{expr} should be blocked by sandbox"
             );
         }
@@ -292,13 +280,55 @@ mod tests {
 
         std::fs::write(&path, r#"return { format = "one" }"#)?;
         let mut loader = ConfigLoader::from_path(&path)?;
-        assert_eq!(eval_text(&mut loader, c)?, "one");
+        assert_eq!(render_reloadable(&mut loader, c)?, "one");
 
         std::fs::write(&path, r#"return { format = "two" }"#)?;
         set_file_mtime(&path, FileTime::from_unix_time(i64::MAX / 2, 0))?;
-        assert_eq!(eval_text(&mut loader, c)?, "two");
+        assert_eq!(render_reloadable(&mut loader, c)?, "two");
 
         Ok(())
+    }
+
+    #[test]
+    fn style_fn_returns_nil_when_arg_is_nil() {
+        assert_eq!(
+            render(r#"return { format = green(nil) or "was_nil" }"#),
+            "was_nil",
+        );
+    }
+
+    #[test]
+    fn compact_filters_nils_and_joins_with_space() {
+        assert_eq!(
+            render(r#"return { format = compact("a", nil, "b", nil, "c") }"#),
+            "a b c",
+        );
+    }
+
+    #[test]
+    fn compact_with_styled_and_nil() {
+        assert_eq!(
+            render(r#"return { format = compact(green("node:", nil), "dir", "❯") }"#),
+            "dir ❯",
+        );
+    }
+
+    #[test]
+    fn compact_with_active_styled_segment() {
+        assert_eq!(
+            render(r#"return { format = compact(green("node:v20"), "dir", "❯") }"#),
+            format!("{} dir ❯", paint("node:v20", style().green())),
+        );
+    }
+
+    #[test]
+    fn compact_all_nil_returns_empty() {
+        assert_eq!(render(r#"return { format = compact(nil, nil) }"#), "");
+    }
+
+    #[test]
+    fn compact_single_element_returns_unwrapped() {
+        assert_eq!(render(r#"return { format = compact("only") }"#), "only");
     }
 
     #[test]

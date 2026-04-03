@@ -1,7 +1,8 @@
+use owo_colors::{AnsiColors, DynColors};
 use serde::{Deserialize, Serialize};
 
 /// Represents an ANSI-formatted string.
-#[derive(Debug, Serialize, Deserialize, Clone)]
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
 pub enum StyledContent {
     Text(String),
     Styled { style: Style, children: Vec<Self> },
@@ -9,7 +10,7 @@ pub enum StyledContent {
 
 /// Serde-friendly style for the daemon-client wire format.
 #[allow(clippy::struct_excessive_bools)]
-#[derive(Debug, Serialize, Deserialize, Default, Clone)]
+#[derive(Debug, Serialize, Deserialize, Default, Clone, PartialEq, Eq)]
 pub struct Style {
     pub fg: Option<Color>,
     pub bg: Option<Color>,
@@ -21,28 +22,31 @@ pub struct Style {
 }
 
 impl Style {
-    pub fn to_anstyle(&self) -> anstyle::Style {
-        let mut effects = anstyle::Effects::new();
+    #[must_use]
+    pub fn to_owo(&self) -> owo_colors::Style {
+        let mut owo = owo_colors::Style::new();
+        if let Some(fg) = self.fg {
+            owo = owo.color(DynColors::Ansi(fg.into()));
+        }
+        if let Some(bg) = self.bg {
+            owo = owo.on_color(DynColors::Ansi(bg.into()));
+        }
         if self.bold {
-            effects = effects.insert(anstyle::Effects::BOLD);
+            owo = owo.bold();
         }
         if self.italic {
-            effects = effects.insert(anstyle::Effects::ITALIC);
-        }
-        if self.underline {
-            effects = effects.insert(anstyle::Effects::UNDERLINE);
+            owo = owo.italic();
         }
         if self.dimmed {
-            effects = effects.insert(anstyle::Effects::DIMMED);
+            owo = owo.dimmed();
+        }
+        if self.underline {
+            owo = owo.underline();
         }
         if self.strikethrough {
-            effects = effects.insert(anstyle::Effects::STRIKETHROUGH);
+            owo = owo.strikethrough();
         }
-
-        anstyle::Style::new()
-            .fg_color(self.fg.map(Into::into))
-            .bg_color(self.bg.map(Into::into))
-            .effects(effects)
+        owo
     }
 }
 
@@ -59,17 +63,17 @@ pub enum Color {
     White,
 }
 
-impl From<Color> for anstyle::Color {
+impl From<Color> for AnsiColors {
     fn from(color: Color) -> Self {
-        Self::Ansi(match color {
-            Color::Black => anstyle::AnsiColor::Black,
-            Color::Red => anstyle::AnsiColor::Red,
-            Color::Green => anstyle::AnsiColor::Green,
-            Color::Yellow => anstyle::AnsiColor::Yellow,
-            Color::Blue => anstyle::AnsiColor::Blue,
-            Color::Magenta => anstyle::AnsiColor::Magenta,
-            Color::Cyan => anstyle::AnsiColor::Cyan,
-            Color::White => anstyle::AnsiColor::White,
-        })
+        match color {
+            Color::Black => Self::Black,
+            Color::Red => Self::Red,
+            Color::Green => Self::Green,
+            Color::Yellow => Self::Yellow,
+            Color::Blue => Self::Blue,
+            Color::Magenta => Self::Magenta,
+            Color::Cyan => Self::Cyan,
+            Color::White => Self::White,
+        }
     }
 }

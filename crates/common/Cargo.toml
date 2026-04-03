@@ -5,13 +5,13 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-anstyle = { workspace = true }
 anyhow = { workspace = true }
 directories = "6.0"
 serde = { version = "1.0", features = ["derive"] }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
 tracing-profile = { workspace = true }
+owo-colors = { workspace = true }
 
 [lints]
 workspace = true
