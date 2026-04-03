@@ -12,10 +12,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
-      - uses: moonrepo/setup-rust@v1
-        with:
-          channel: stable
-          targets: wasm32-unknown-unknown
+      - run: rustup target add wasm32-unknown-unknown
+      - uses: Swatinem/rust-cache@v2
       - run: cargo test
 
   clippy:
@@ -23,9 +21,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
-      - uses: moonrepo/setup-rust@v1
-        with:
-          channel: stable
-          components: clippy
-          targets: wasm32-unknown-unknown
+      - run: |
+          rustup component add clippy
+          rustup target add wasm32-unknown-unknown
+      - uses: Swatinem/rust-cache@v2
       - run: cargo clippy --workspace -- -D warnings

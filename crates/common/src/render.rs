@@ -8,6 +8,7 @@ pub fn paint(text: &str, style: owo_colors::Style) -> String {
 }
 
 /// Render the structured prompt representation into a string.
+#[tracing::instrument(skip_all)]
 pub fn render_prompt(prompt: &StyledContent) -> String {
     match prompt {
         StyledContent::Text(text) => text.clone(),

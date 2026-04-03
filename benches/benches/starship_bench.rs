@@ -21,7 +21,14 @@ const WITH_MODULES_CONFIG: BenchConfig = BenchConfig {
     "#,
 };
 
-const ALL_CONFIGS: [BenchConfig; 2] = [MINIMAL_CONFIG, WITH_MODULES_CONFIG];
+const COMPACT_CONFIG: BenchConfig = BenchConfig {
+    name: "Compact",
+    source: r#"
+        return { format = compact(green("node:", nil), ctx.pwd, "❯") }
+    "#,
+};
+
+const ALL_CONFIGS: [BenchConfig; 3] = [MINIMAL_CONFIG, WITH_MODULES_CONFIG, COMPACT_CONFIG];
 
 fn main() {
     divan::main();
