@@ -151,12 +151,19 @@ fn read_packed_bytes(
 }
 
 impl WasmPlugin {
-    /// Loads a WASM plugin from compiled bytes.
+    /// Loads a WASM plugin by compiling bytes and instantiating the module.
     ///
     /// Links host functions (`get_env`, `exec`, `file_exists`), instantiates the module,
     /// reads the plugin name, and creates a guest-side instance handle.
     pub fn load(engine: &Engine, wasm_bytes: &[u8], pwd: &Path) -> Result<Self> {
         let module = tracing::info_span!("compile").in_scope(|| Module::new(engine, wasm_bytes))?;
+        Self::from_module(&module, pwd)
+    }
+
+    /// Creates a plugin instance from a pre-compiled module, skipping WASM
+    /// compilation. Use when instantiating the same plugin multiple times.
+    pub fn from_module(module: &Module, pwd: &Path) -> Result<Self> {
+        let engine = module.engine();
         let linker = create_linker(engine)?;
         let mut store = Store::new(
             engine,
@@ -165,7 +172,7 @@ impl WasmPlugin {
             },
         );
         let instance = tracing::info_span!("instantiate")
-            .in_scope(|| linker.instantiate(&mut store, &module))?;
+            .in_scope(|| linker.instantiate(&mut store, module))?;
         let name_func = instance.get_typed_func::<(), u64>(&mut store, "_plugin_name")?;
         let name_packed = name_func.call(&mut store, ())?;
         let name_bytes = read_packed_bytes(&instance, &mut store, name_packed)?;
@@ -364,7 +371,7 @@ pub fn load_plugins(engine: &Engine, plugin_dir: &Path, pwd: &Path) -> Vec<WasmP
 pub mod test_helpers {
     use std::path::{Path, PathBuf};
 
-    use wasmtime::Engine;
+    use wasmtime::{Engine, Module};
 
     use super::WasmPlugin;
 
@@ -375,6 +382,7 @@ pub mod test_helpers {
     pub struct PluginFixture {
         pub dir: PathBuf,
         plugin: WasmPlugin,
+        module: Module,
         crate_name: String,
         _tempdir: tempfile::TempDir,
     }
@@ -384,11 +392,14 @@ pub mod test_helpers {
             let bytes = std::fs::read(wasm_path(crate_name))
                 .unwrap_or_else(|_| panic!("{crate_name}.wasm should exist (built by build.rs)"));
             let engine = Engine::default();
-            let plugin = WasmPlugin::load(&engine, &bytes, pwd)
+            let module = Module::new(&engine, &bytes)
+                .unwrap_or_else(|e| panic!("plugin {crate_name} should compile: {e}"));
+            let plugin = WasmPlugin::from_module(&module, pwd)
                 .unwrap_or_else(|e| panic!("plugin {crate_name} should load: {e}"));
             Self {
                 dir: pwd.to_path_buf(),
                 plugin,
+                module,
                 crate_name: crate_name.to_string(),
                 _tempdir: tempfile::TempDir::new().unwrap(),
             }
@@ -400,11 +411,14 @@ pub mod test_helpers {
             let bytes = std::fs::read(wasm_path(crate_name))
                 .unwrap_or_else(|_| panic!("{crate_name}.wasm should exist (built by build.rs)"));
             let engine = Engine::default();
-            let plugin = WasmPlugin::load(&engine, &bytes, &path)
+            let module = Module::new(&engine, &bytes)
+                .unwrap_or_else(|e| panic!("plugin {crate_name} should compile: {e}"));
+            let plugin = WasmPlugin::from_module(&module, &path)
                 .unwrap_or_else(|e| panic!("plugin {crate_name} should load: {e}"));
             Self {
                 dir: path,
                 plugin,
+                module,
                 crate_name: crate_name.to_string(),
                 _tempdir: dir,
             }
@@ -449,9 +463,7 @@ pub mod test_helpers {
         }
 
         fn plugin_for_loader(&self) -> WasmPlugin {
-            let bytes = std::fs::read(wasm_path(&self.crate_name)).expect("wasm should exist");
-            let engine = Engine::default();
-            WasmPlugin::load(&engine, &bytes, &self.dir).expect("plugin should load")
+            WasmPlugin::from_module(&self.module, &self.dir).expect("plugin should load")
         }
     }
 
