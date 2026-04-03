@@ -386,7 +386,7 @@ pub mod test_helpers {
         }
         std::env::current_dir()
             .unwrap_or_default()
-            .join("target/wasm32-unknown-unknown/release")
+            .join("target/wasm-plugins/wasm32-unknown-unknown/release")
             .join(&file)
     }
 
