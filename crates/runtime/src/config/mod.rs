@@ -443,7 +443,7 @@ mod tests {
 
     #[test]
     fn plugin_proxy_resolves_field() {
-        let mut plugin = crate::plugin_fixture!("starship-plugin-test-harness");
+        let mut plugin = crate::plugin_fixture!();
         std::fs::write(plugin.dir.join(".starship-test-marker"), "").unwrap();
         let result = plugin.render(r#"test.home or "N/A""#);
         assert_ne!(result, "N/A");
@@ -451,7 +451,7 @@ mod tests {
 
     #[test]
     fn plugin_proxy_returns_nil_for_unknown_method() {
-        let mut plugin = crate::plugin_fixture!("starship-plugin-test-harness");
+        let mut plugin = crate::plugin_fixture!();
         let result = plugin.render(r#"test.fakefield or "fallback""#);
         assert_eq!(result, "fallback");
     }

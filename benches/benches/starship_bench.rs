@@ -2,10 +2,9 @@ use config::BenchConfig;
 use divan::{black_box, Bencher};
 use starship_common::{render_prompt, ShellContext};
 use starship_daemon::handle_client;
-use starship_runtime::plugin::test_helpers::PluginFixture;
+use starship_runtime::plugin::test_helpers::{PluginFixture, TEST_HARNESS_WASM};
 use starship_runtime::plugin::WasmPlugin;
 use starship_runtime::ConfigLoader;
-use std::path::Path;
 use std::{os::unix::net::UnixStream, path::PathBuf};
 
 mod config;
@@ -44,21 +43,6 @@ fn context() -> ShellContext {
         pwd: Some(PathBuf::from("/Users/test/projects/starship")),
         user: Some("testuser".into()),
     }
-}
-
-fn wasm_bytes() -> Vec<u8> {
-    let file = "starship_plugin_test_harness.wasm";
-    let path = if let Ok(dir) = std::env::var("WASM_PLUGIN_DIR") {
-        PathBuf::from(dir).join(file)
-    } else {
-        Path::new(env!("CARGO_MANIFEST_DIR"))
-            .parent()
-            .unwrap()
-            .join("target/wasm-plugins/wasm32-unknown-unknown/release")
-            .join(file)
-    };
-    std::fs::read(&path)
-        .unwrap_or_else(|_| panic!("test-harness wasm should exist at {}", path.display()))
 }
 
 // --- Socket-based benchmark (end-to-end with IPC) ---
@@ -102,15 +86,14 @@ fn cached_config(bencher: Bencher, config: &BenchConfig) {
 
 #[divan::bench]
 fn plugin_load() {
-    let bytes = wasm_bytes();
     let engine = wasmtime::Engine::default();
     let dir = tempfile::tempdir().unwrap();
-    black_box(WasmPlugin::load(&engine, &bytes, dir.path()).unwrap());
+    black_box(WasmPlugin::load(&engine, TEST_HARNESS_WASM, dir.path()).unwrap());
 }
 
 #[divan::bench]
 fn plugin_call_method(bencher: Bencher) {
-    let mut fixture = PluginFixture::with_tempdir("starship-plugin-test-harness");
+    let mut fixture = PluginFixture::from_wasm(TEST_HARNESS_WASM);
     std::fs::write(fixture.dir.join(".starship-test-marker"), "").unwrap();
     bencher.bench_local(|| {
         black_box(fixture.get("home"));
@@ -119,7 +102,7 @@ fn plugin_call_method(bencher: Bencher) {
 
 #[divan::bench]
 fn config_with_plugins(bencher: Bencher) {
-    let mut fixture = PluginFixture::with_tempdir("starship-plugin-test-harness");
+    let mut fixture = PluginFixture::from_wasm(TEST_HARNESS_WASM);
     std::fs::write(fixture.dir.join(".starship-test-marker"), "").unwrap();
     bencher.bench_local(|| {
         black_box(fixture.render(PLUGIN_EXPR));

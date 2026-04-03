@@ -372,26 +372,21 @@ pub fn load_plugins(engine: &Engine, plugin_dir: &Path, pwd: &Path) -> Vec<WasmP
 
 #[cfg(any(test, feature = "testing"))]
 pub mod test_helpers {
-    use std::path::{Path, PathBuf};
+    use std::path::PathBuf;
 
     use wasmtime::{Engine, Module};
 
     use super::WasmPlugin;
 
-    fn wasm_path(name: &str) -> PathBuf {
-        let file = format!("{}.wasm", name.replace('-', "_"));
-        let compile_time = Path::new(env!("WASM_PLUGIN_DIR")).join(&file);
-        if compile_time.exists() {
-            return compile_time;
-        }
-        if let Ok(dir) = std::env::var("WASM_PLUGIN_DIR") {
-            return PathBuf::from(dir).join(&file);
-        }
-        std::env::current_dir()
-            .unwrap_or_default()
-            .join("target/wasm-plugins/wasm32-unknown-unknown/release")
-            .join(&file)
-    }
+    pub const TEST_HARNESS_WASM: &[u8] = include_bytes!(concat!(
+        env!("WASM_PLUGIN_DIR"),
+        "/starship_plugin_test_harness.wasm"
+    ));
+
+    pub const NODEJS_WASM: &[u8] = include_bytes!(concat!(
+        env!("WASM_PLUGIN_DIR"),
+        "/starship_plugin_nodejs.wasm"
+    ));
 
     pub struct PluginFixture {
         pub dir: PathBuf,
@@ -401,16 +396,12 @@ pub mod test_helpers {
     }
 
     impl PluginFixture {
-        pub fn with_tempdir(crate_name: &str) -> Self {
+        pub fn from_wasm(bytes: &[u8]) -> Self {
             let dir = tempfile::TempDir::new().expect("tempdir");
             let path = dir.path().to_path_buf();
-            let bytes = std::fs::read(wasm_path(crate_name))
-                .unwrap_or_else(|_| panic!("{crate_name}.wasm should exist (built by build.rs)"));
             let engine = Engine::default();
-            let module = Module::new(&engine, &bytes)
-                .unwrap_or_else(|e| panic!("plugin {crate_name} should compile: {e}"));
-            let plugin = WasmPlugin::from_module(&module, &path)
-                .unwrap_or_else(|e| panic!("plugin {crate_name} should load: {e}"));
+            let module = Module::new(&engine, bytes).expect("plugin should compile");
+            let plugin = WasmPlugin::from_module(&module, &path).expect("plugin should load");
             Self {
                 dir: path,
                 plugin,
@@ -462,17 +453,12 @@ pub mod test_helpers {
         }
     }
 
-    /// Creates a `PluginFixture` with a fresh tempdir.
-    ///
-    /// - `plugin_fixture!()` — loads the current crate's plugin
-    /// - `plugin_fixture!("name")` — loads a plugin by crate name
     #[macro_export]
     macro_rules! plugin_fixture {
         () => {
-            $crate::plugin::test_helpers::PluginFixture::with_tempdir(env!("CARGO_PKG_NAME"))
-        };
-        ($name:expr) => {
-            $crate::plugin::test_helpers::PluginFixture::with_tempdir($name)
+            $crate::plugin::test_helpers::PluginFixture::from_wasm(
+                $crate::plugin::test_helpers::TEST_HARNESS_WASM,
+            )
         };
     }
 }
@@ -509,13 +495,13 @@ mod tests {
 
     #[test]
     fn plugin_loads_and_returns_name() {
-        let mut plugin = plugin_fixture!("starship-plugin-test-harness");
+        let mut plugin = plugin_fixture!();
         assert_eq!(plugin.get("home").is_some(), true);
     }
 
     #[test]
     fn unknown_method_returns_null() {
-        let mut plugin = plugin_fixture!("starship-plugin-test-harness");
+        let mut plugin = plugin_fixture!();
         assert!(plugin.get("does_not_exist").is_none());
     }
 
@@ -530,13 +516,13 @@ mod tests {
 
     #[test]
     fn host_get_env() {
-        let mut plugin = plugin_fixture!("starship-plugin-test-harness");
+        let mut plugin = plugin_fixture!();
         assert!(plugin.get("home").is_some());
     }
 
     #[test]
     fn host_exec() {
-        let mut plugin = plugin_fixture!("starship-plugin-test-harness");
+        let mut plugin = plugin_fixture!();
         let pwd = plugin.get("pwd").expect("pwd should return a string");
         let actual = std::fs::canonicalize(&pwd).expect("pwd output resolves");
         let expected = std::fs::canonicalize(&plugin.dir).expect("tempdir path resolves");
@@ -545,7 +531,7 @@ mod tests {
 
     #[test]
     fn is_active_reflects_file_exists() {
-        let mut plugin = plugin_fixture!("starship-plugin-test-harness");
+        let mut plugin = plugin_fixture!();
         assert!(!plugin.is_active());
 
         fs::write(plugin.dir.join(".starship-test-marker"), "").unwrap();
