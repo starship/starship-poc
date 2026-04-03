@@ -379,7 +379,15 @@ pub mod test_helpers {
     use super::WasmPlugin;
 
     fn wasm_path(name: &str) -> PathBuf {
-        Path::new(env!("WASM_PLUGIN_DIR")).join(format!("{}.wasm", name.replace('-', "_")))
+        let file = format!("{}.wasm", name.replace('-', "_"));
+        let compile_time = Path::new(env!("WASM_PLUGIN_DIR")).join(&file);
+        if compile_time.exists() {
+            return compile_time;
+        }
+        std::env::current_dir()
+            .unwrap_or_default()
+            .join("target/wasm32-unknown-unknown/release")
+            .join(&file)
     }
 
     pub struct PluginFixture {
