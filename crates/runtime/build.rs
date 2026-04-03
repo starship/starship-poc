@@ -1,11 +1,15 @@
 use std::process::Command;
+use std::time::Instant;
 use std::{env, fs, io::Write, path::Path};
 
 /// Generates a compile-time icon lookup table from vendored Nerd Font glyphnames.json.
 /// Source: <https://github.com/ryanoasis/nerd-fonts/blob/master/glyphnames.json>
 fn main() {
+    eprintln!("[build.rs] starting");
     build_icons();
+    eprintln!("[build.rs] icons done, building test plugins...");
     build_test_plugins();
+    eprintln!("[build.rs] done");
 }
 
 fn build_icons() {
@@ -44,6 +48,8 @@ fn build_test_plugins() {
     let cargo = env::var("CARGO").unwrap_or_else(|_| "cargo".to_string());
 
     for plugin in ["starship-plugin-test-harness", "starship-plugin-nodejs"] {
+        eprintln!("[build.rs] building {plugin}...");
+        let t = Instant::now();
         let status = Command::new(&cargo)
             .args([
                 "build",
@@ -58,6 +64,10 @@ fn build_test_plugins() {
             .env_remove("MAKEFLAGS")
             .status()
             .unwrap_or_else(|e| panic!("failed to run cargo build for {plugin}: {e}"));
+        eprintln!(
+            "[build.rs] {plugin} finished in {:.1}s",
+            t.elapsed().as_secs_f64()
+        );
 
         assert!(
             status.success(),
