@@ -70,10 +70,6 @@ fn build_test_plugins() {
                 "--target-dir",
             ])
             .arg(&wasm_target_dir)
-            .env_remove("CARGO_MAKEFLAGS")
-            .env_remove("MAKEFLAGS")
-            .env_remove("MFLAGS")
-            .env_remove("RUSTFLAGS")
             .status()
             .unwrap_or_else(|e| panic!("failed to run cargo build for {plugin}: {e}"));
 
