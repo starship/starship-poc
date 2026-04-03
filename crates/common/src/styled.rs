@@ -1,11 +1,47 @@
+use std::fmt;
+
 use owo_colors::{AnsiColors, DynColors};
 use serde::{Deserialize, Serialize};
 
-/// Represents an ANSI-formatted string.
+/// A single text span with fully resolved styling.
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
-pub enum StyledContent {
-    Text(String),
-    Styled { style: Style, children: Vec<Self> },
+pub struct Span {
+    pub text: String,
+    #[serde(default, skip_serializing_if = "Style::is_plain")]
+    pub style: Style,
+}
+
+impl Span {
+    #[must_use]
+    pub fn plain(text: String) -> Self {
+        Self {
+            text,
+            style: Style::default(),
+        }
+    }
+}
+
+/// A rendered prompt as a flat sequence of styled spans.
+///
+/// Styles are fully resolved at construction time — rendering is a
+/// single pass with no recursion or intermediate allocations.
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
+pub struct StyledContent(pub Vec<Span>);
+
+impl fmt::Display for StyledContent {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        for span in &self.0 {
+            let owo = span.style.to_owo();
+            if owo.is_plain() {
+                f.write_str(&span.text)?;
+            } else {
+                owo.fmt_prefix(f)?;
+                f.write_str(&span.text)?;
+                owo.fmt_suffix(f)?;
+            }
+        }
+        Ok(())
+    }
 }
 
 /// Serde-friendly style for the daemon-client wire format.
@@ -22,6 +58,25 @@ pub struct Style {
 }
 
 impl Style {
+    #[must_use]
+    pub fn is_plain(&self) -> bool {
+        *self == Self::default()
+    }
+
+    /// Merge with a parent style. Self (inner) takes precedence for colors;
+    /// boolean effects are combined with OR.
+    #[must_use]
+    pub fn merge(mut self, parent: &Style) -> Style {
+        self.fg = self.fg.or(parent.fg);
+        self.bg = self.bg.or(parent.bg);
+        self.bold = self.bold || parent.bold;
+        self.italic = self.italic || parent.italic;
+        self.dimmed = self.dimmed || parent.dimmed;
+        self.underline = self.underline || parent.underline;
+        self.strikethrough = self.strikethrough || parent.strikethrough;
+        self
+    }
+
     #[must_use]
     pub fn to_owo(&self) -> owo_colors::Style {
         let mut owo = owo_colors::Style::new();

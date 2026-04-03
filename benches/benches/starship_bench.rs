@@ -1,6 +1,6 @@
 use config::BenchConfig;
 use divan::{black_box, Bencher};
-use starship_common::{render_prompt, ShellContext};
+use starship_common::ShellContext;
 use starship_daemon::handle_client;
 use starship_runtime::plugin::test_helpers::{PluginFixture, TEST_HARNESS_WASM};
 use starship_runtime::plugin::WasmPlugin;
@@ -68,7 +68,7 @@ fn cold_start(config: &BenchConfig) {
     let ctx = context();
     let func = loader.load(&ctx).unwrap();
     let output: starship_runtime::Config = func.call(()).unwrap();
-    black_box(render_prompt(&output.format));
+    black_box(output.format.to_string());
 }
 
 #[divan::bench(args = ALL_CONFIGS)]
@@ -78,7 +78,7 @@ fn cached_config(bencher: Bencher, config: &BenchConfig) {
         let ctx = context();
         let func = loader.load(&ctx).unwrap();
         let output: starship_runtime::Config = func.call(()).unwrap();
-        black_box(render_prompt(&output.format))
+        black_box(output.format.to_string())
     });
 }
 

@@ -280,7 +280,7 @@ mod tests {
     use super::*;
     use anyhow::Result;
     use starship_common::owo_colors::style;
-    use starship_common::render::{paint, render_prompt};
+    use starship_common::render::paint;
 
     fn ctx(pwd: Option<&str>, user: Option<&str>) -> ShellContext {
         ShellContext {
@@ -292,7 +292,7 @@ mod tests {
     fn try_render(source: &str, context: &ShellContext) -> Result<String> {
         let mut loader = ConfigLoader::from_source(source)?;
         let output: Config = loader.load(context)?.call(())?;
-        Ok(render_prompt(&output.format))
+        Ok(output.format.to_string())
     }
 
     fn render(source: &str) -> String {
@@ -301,7 +301,7 @@ mod tests {
 
     fn render_reloadable(loader: &mut ConfigLoader, context: &ShellContext) -> Result<String> {
         let output: Config = loader.load(context)?.call(())?;
-        Ok(render_prompt(&output.format))
+        Ok(output.format.to_string())
     }
 
     #[test]
