@@ -14,7 +14,7 @@ permissions:
 jobs:
   build-walltime:
     name: Build benchmarks (walltime)
-    runs-on: ubuntu-24.04-arm
+    runs-on: ubuntu-22.04-arm
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@v6
