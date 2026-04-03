@@ -12,6 +12,10 @@ use std::env;
 #[must_use]
 pub fn init_tracing() -> Option<impl Drop> {
     if env::var("STARSHIP_PROFILE").is_ok() {
+        if env::var("RUST_LOG").is_err() {
+            // SAFETY: called before any threads are spawned.
+            unsafe { env::set_var("RUST_LOG", "starship=debug,warn") };
+        }
         let guard = tracing_profile::init_tracing().expect("Failed to initialize profiler");
         return Some(guard);
     }
