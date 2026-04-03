@@ -21,10 +21,12 @@ pub fn handle_client<S: Read + Write>(stream: S, loader: &mut ConfigLoader) -> R
         let context: ShellContext =
             serde_json::from_str(&line).context("Failed to parse request")?;
         let config_function = loader.load(&context)?;
-        let output: Config = config_function.call(())?;
+        let output: Config =
+            tracing::info_span!("lua_eval").in_scope(|| config_function.call(()))?;
 
         let writer = reader.get_mut();
-        serde_json::to_writer(&mut *writer, &output.format)?;
+        tracing::info_span!("serialize")
+            .in_scope(|| serde_json::to_writer(&mut *writer, &output.format))?;
         writer.write_all(b"\n")?;
         writer.flush()?;
 

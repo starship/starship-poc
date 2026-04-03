@@ -6,6 +6,7 @@ use anyhow::{anyhow, Result};
 use mlua::{Lua, LuaSerdeExt, Table};
 use serde_json::Value;
 use starship_plugin_core::{from_bitwise, into_bitwise};
+use tracing::instrument;
 use wasmtime::{Caller, Engine, Instance, Linker, Module, Store};
 
 struct HostState {
@@ -67,6 +68,7 @@ fn write_guest_bytes(caller: &mut Caller<'_, HostState>, bytes: &[u8]) -> Result
     Ok(into_bitwise(ptr, len))
 }
 
+#[instrument(skip_all)]
 fn host_get_env(caller: &mut Caller<'_, HostState>, packed: u64) -> Result<u64> {
     let bytes = read_guest_bytes(caller, packed)?;
     caller_dealloc(caller, packed)?;
@@ -80,6 +82,7 @@ fn host_exec(caller: &mut Caller<'_, HostState>, packed: u64) -> Result<u64> {
     let bytes = read_guest_bytes(caller, packed)?;
     caller_dealloc(caller, packed)?;
     let (cmd, args): (String, Vec<String>) = serde_json::from_slice(&bytes)?;
+    let _span = tracing::info_span!("host_exec", %cmd).entered();
     let pwd = caller.data().pwd.clone();
     let output = std::process::Command::new(&cmd)
         .args(&args)
@@ -93,6 +96,7 @@ fn host_exec(caller: &mut Caller<'_, HostState>, packed: u64) -> Result<u64> {
     write_guest_bytes(caller, &json)
 }
 
+#[instrument(skip_all)]
 fn host_file_exists(caller: &mut Caller<'_, HostState>, packed: u64) -> Result<u32> {
     let bytes = read_guest_bytes(caller, packed)?;
     caller_dealloc(caller, packed)?;
@@ -152,7 +156,7 @@ impl WasmPlugin {
     /// Links host functions (`get_env`, `exec`, `file_exists`), instantiates the module,
     /// reads the plugin name, and creates a guest-side instance handle.
     pub fn load(engine: &Engine, wasm_bytes: &[u8], pwd: &Path) -> Result<Self> {
-        let module = Module::new(engine, wasm_bytes)?;
+        let module = tracing::info_span!("compile").in_scope(|| Module::new(engine, wasm_bytes))?;
         let linker = create_linker(engine)?;
         let mut store = Store::new(
             engine,
@@ -160,7 +164,8 @@ impl WasmPlugin {
                 pwd: pwd.to_path_buf(),
             },
         );
-        let instance = linker.instantiate(&mut store, &module)?;
+        let instance = tracing::info_span!("instantiate")
+            .in_scope(|| linker.instantiate(&mut store, &module))?;
         let name_func = instance.get_typed_func::<(), u64>(&mut store, "_plugin_name")?;
         let name_packed = name_func.call(&mut store, ())?;
         let name_bytes = read_packed_bytes(&instance, &mut store, name_packed)?;
@@ -192,6 +197,7 @@ impl WasmPlugin {
         self.is_active.set(None);
     }
 
+    #[instrument(skip_all, fields(plugin = %self.name))]
     pub fn is_active(&mut self) -> bool {
         let Ok(func) = self
             .instance
@@ -223,6 +229,7 @@ impl WasmPlugin {
     ///
     /// Returns `Value::Null` for unknown methods or if the guest traps.
     /// The caller is responsible for converting the JSON value to the desired type.
+    #[instrument(skip(self), fields(plugin = %self.name))]
     pub fn call_method(&mut self, method: &str) -> Result<Value> {
         let method_json = serde_json::to_vec(&method)?;
 
@@ -323,6 +330,7 @@ pub fn register_plugin(lua: &Lua, plugin: Rc<RefCell<WasmPlugin>>) -> mlua::Resu
 /// Returns an empty vec if the directory doesn't exist. Logs and skips
 /// individual plugins that fail to load.
 #[must_use]
+#[instrument(skip(engine, pwd))]
 pub fn load_plugins(engine: &Engine, plugin_dir: &Path, pwd: &Path) -> Vec<WasmPlugin> {
     if !plugin_dir.exists() {
         return vec![];
@@ -336,6 +344,11 @@ pub fn load_plugins(engine: &Engine, plugin_dir: &Path, pwd: &Path) -> Vec<WasmP
         .filter_map(|entry| {
             let path = entry.path();
             let bytes = std::fs::read(&path).ok()?;
+            let _span = tracing::info_span!(
+                "WasmPlugin::load",
+                plugin = %path.file_stem().unwrap_or_default().to_string_lossy(),
+            )
+            .entered();
             match WasmPlugin::load(engine, &bytes, pwd) {
                 Ok(plugin) => Some(plugin),
                 Err(err) => {
