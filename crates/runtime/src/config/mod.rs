@@ -418,6 +418,30 @@ mod tests {
     }
 
     #[test]
+    fn undefined_global_field_returns_nil() {
+        assert_eq!(
+            render(r#"return { format = nodejs.version or "missing" }"#),
+            "missing",
+        );
+    }
+
+    #[test]
+    fn undefined_global_in_compact_is_filtered() {
+        assert_eq!(
+            render(r#"return { format = compact(green("node:", nodejs.version), "dir", "❯") }"#),
+            "dir ❯",
+        );
+    }
+
+    #[test]
+    fn stdlib_globals_resolve_through_env() {
+        assert_eq!(
+            render(r#"return { format = tostring(math.max(1, 2)) }"#),
+            "2",
+        );
+    }
+
+    #[test]
     fn plugin_proxy_resolves_field() {
         let mut plugin = crate::plugin_fixture!("starship-plugin-test-harness");
         std::fs::write(plugin.dir.join(".starship-test-marker"), "").unwrap();
