@@ -384,6 +384,9 @@ pub mod test_helpers {
         if compile_time.exists() {
             return compile_time;
         }
+        if let Ok(dir) = std::env::var("WASM_PLUGIN_DIR") {
+            return PathBuf::from(dir).join(&file);
+        }
         std::env::current_dir()
             .unwrap_or_default()
             .join("target/wasm-plugins/wasm32-unknown-unknown/release")

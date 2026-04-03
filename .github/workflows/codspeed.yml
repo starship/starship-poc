@@ -78,6 +78,8 @@ jobs:
         with:
           mode: walltime
           run: cargo codspeed run
+        env:
+          WASM_PLUGIN_DIR: ${{ github.workspace }}/target/wasm-plugins/wasm32-unknown-unknown/release
 
   run-memory:
     name: Run benchmarks (memory)
@@ -98,3 +100,5 @@ jobs:
         with:
           mode: memory
           run: cargo codspeed run
+        env:
+          WASM_PLUGIN_DIR: ${{ github.workspace }}/target/wasm-plugins/wasm32-unknown-unknown/release
