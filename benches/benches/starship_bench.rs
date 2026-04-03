@@ -47,18 +47,15 @@ fn context() -> ShellContext {
 }
 
 fn wasm_bytes() -> Vec<u8> {
-    let compile_time = Path::new(env!("CARGO_MANIFEST_DIR"))
-        .parent()
-        .unwrap()
-        .join(
-            "target/wasm-plugins/wasm32-unknown-unknown/release/starship_plugin_test_harness.wasm",
-        );
-    let path = if compile_time.exists() {
-        compile_time
+    let file = "starship_plugin_test_harness.wasm";
+    let path = if let Ok(dir) = std::env::var("WASM_PLUGIN_DIR") {
+        PathBuf::from(dir).join(file)
     } else {
-        std::env::current_dir().unwrap_or_default().join(
-            "target/wasm-plugins/wasm32-unknown-unknown/release/starship_plugin_test_harness.wasm",
-        )
+        Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .unwrap()
+            .join("target/wasm-plugins/wasm32-unknown-unknown/release")
+            .join(file)
     };
     std::fs::read(&path)
         .unwrap_or_else(|_| panic!("test-harness wasm should exist at {}", path.display()))
