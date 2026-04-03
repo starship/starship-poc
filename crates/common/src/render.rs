@@ -1,5 +1,3 @@
-use owo_colors::OwoColorize;
-
 /// Render a plain string with an `owo_colors::Style`, returning the ANSI-wrapped result.
 #[must_use]
 pub fn paint(text: &str, style: owo_colors::Style) -> String {
