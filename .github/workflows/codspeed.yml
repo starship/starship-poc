@@ -36,7 +36,7 @@ jobs:
 
   build-memory:
     name: Build benchmarks (memory)
-    runs-on: ubuntu-24.04-arm
+    runs-on: ubuntu-22.04-arm
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@v6
@@ -80,7 +80,7 @@ jobs:
   run-memory:
     name: Run benchmarks (memory)
     needs: build-memory
-    runs-on: ubuntu-24.04-arm
+    runs-on: ubuntu-22.04-arm
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v6
