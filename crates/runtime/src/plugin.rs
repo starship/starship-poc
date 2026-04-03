@@ -83,10 +83,9 @@ fn host_exec(caller: &mut Caller<'_, HostState>, packed: u64) -> Result<u64> {
     caller_dealloc(caller, packed)?;
     let (cmd, args): (String, Vec<String>) = serde_json::from_slice(&bytes)?;
     let _span = tracing::info_span!("host_exec", %cmd).entered();
-    let pwd = caller.data().pwd.clone();
     let output = std::process::Command::new(&cmd)
         .args(&args)
-        .current_dir(pwd)
+        .current_dir(&caller.data().pwd)
         .output();
     let result: Option<String> = output
         .ok()
@@ -206,6 +205,15 @@ impl WasmPlugin {
 
     #[instrument(skip_all, fields(plugin = %self.name))]
     pub fn is_active(&mut self) -> bool {
+        if let Some(cached) = self.is_active.get() {
+            return cached;
+        }
+        let result = self.is_active_uncached();
+        self.is_active.set(Some(result));
+        result
+    }
+
+    fn is_active_uncached(&mut self) -> bool {
         let Ok(func) = self
             .instance
             .get_typed_func::<u32, u64>(&mut self.store, "_plugin_is_active")
@@ -311,12 +319,7 @@ pub fn register_plugin(lua: &Lua, plugin: Rc<RefCell<WasmPlugin>>) -> mlua::Resu
         "__index",
         lua.create_function(move |lua, (_table, key): (Table, String)| {
             let mut plugin = plugin.borrow_mut();
-            let active = plugin.is_active.get().unwrap_or_else(|| {
-                let v = plugin.is_active();
-                plugin.is_active.set(Some(v));
-                v
-            });
-            if !active {
+            if !plugin.is_active() {
                 return Ok(mlua::Value::Nil);
             }
             let result = plugin
@@ -387,22 +390,6 @@ pub mod test_helpers {
     }
 
     impl PluginFixture {
-        pub fn new(crate_name: &str, pwd: &Path) -> Self {
-            let bytes = std::fs::read(wasm_path(crate_name))
-                .unwrap_or_else(|_| panic!("{crate_name}.wasm should exist (built by build.rs)"));
-            let engine = Engine::default();
-            let module = Module::new(&engine, &bytes)
-                .unwrap_or_else(|e| panic!("plugin {crate_name} should compile: {e}"));
-            let plugin = WasmPlugin::from_module(&module, pwd)
-                .unwrap_or_else(|e| panic!("plugin {crate_name} should load: {e}"));
-            Self {
-                dir: pwd.to_path_buf(),
-                plugin,
-                module,
-                _tempdir: tempfile::TempDir::new().unwrap(),
-            }
-        }
-
         pub fn with_tempdir(crate_name: &str) -> Self {
             let dir = tempfile::TempDir::new().expect("tempdir");
             let path = dir.path().to_path_buf();
