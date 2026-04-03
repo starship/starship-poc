@@ -21,6 +21,7 @@ jobs:
       - uses: actions-rust-lang/setup-rust-toolchain@v1
         with:
           target: wasm32-unknown-unknown
+          cache-key: ubuntu-22.04-arm
       - uses: taiki-e/install-action@v2
         with:
           tool: cargo-codspeed
@@ -43,6 +44,7 @@ jobs:
       - uses: actions-rust-lang/setup-rust-toolchain@v1
         with:
           target: wasm32-unknown-unknown
+          cache-key: ubuntu-22.04-arm
       - uses: taiki-e/install-action@v2
         with:
           tool: cargo-codspeed
