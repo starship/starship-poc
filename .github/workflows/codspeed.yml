@@ -29,9 +29,7 @@ jobs:
       - uses: actions/upload-artifact@v7
         with:
           name: codspeed-walltime
-          path: |
-            target/codspeed
-            target/wasm-plugins
+          path: target/codspeed
           if-no-files-found: error
           retention-days: 1
 
@@ -52,9 +50,7 @@ jobs:
       - uses: actions/upload-artifact@v7
         with:
           name: codspeed-memory
-          path: |
-            target/codspeed
-            target/wasm-plugins
+          path: target/codspeed
           if-no-files-found: error
           retention-days: 1
 
@@ -72,14 +68,12 @@ jobs:
       - uses: actions/download-artifact@v8
         with:
           name: codspeed-walltime
-          path: target
+          path: target/codspeed
       - run: find target/codspeed -type f -exec chmod +x {} +
       - uses: CodSpeedHQ/action@v4
         with:
           mode: walltime
           run: cargo codspeed run
-        env:
-          WASM_PLUGIN_DIR: ${{ github.workspace }}/target/wasm-plugins/wasm32-unknown-unknown/release
 
   run-memory:
     name: Run benchmarks (memory)
@@ -94,11 +88,9 @@ jobs:
       - uses: actions/download-artifact@v8
         with:
           name: codspeed-memory
-          path: target
+          path: target/codspeed
       - run: find target/codspeed -type f -exec chmod +x {} +
       - uses: CodSpeedHQ/action@v4
         with:
           mode: memory
           run: cargo codspeed run
-        env:
-          WASM_PLUGIN_DIR: ${{ github.workspace }}/target/wasm-plugins/wasm32-unknown-unknown/release

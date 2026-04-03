@@ -62,7 +62,7 @@ mod tests {
 
     #[test]
     fn daemon_serves_prompt_with_plugin_data() {
-        let mut plugin = starship_runtime::plugin_fixture!("starship-plugin-test-harness");
+        let mut plugin = starship_runtime::plugin_fixture!();
         std::fs::write(plugin.dir.join(".starship-test-marker"), "").unwrap();
         let result = plugin.render(r#"test.home or "none""#);
         assert!(!result.is_empty());
@@ -71,7 +71,7 @@ mod tests {
 
     #[test]
     fn plugin_method_returns_nil_when_inactive() {
-        let mut plugin = starship_runtime::plugin_fixture!("starship-plugin-test-harness");
+        let mut plugin = starship_runtime::plugin_fixture!();
         let result = plugin.render(r#"test.home or "inactive""#);
         assert_eq!(result, "inactive");
     }
