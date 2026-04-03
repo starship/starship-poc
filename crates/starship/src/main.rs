@@ -1,6 +1,6 @@
 use anyhow::Result;
 use clap::Parser;
-use starship_common::{init_tracing, render_prompt, socket, ShellContext};
+use starship_common::{init_tracing, socket, ShellContext};
 use starship_runtime::{Config, ConfigLoader};
 use std::process::Command;
 use std::thread;
@@ -24,7 +24,7 @@ fn main() -> Result<()> {
         let mut loader = ConfigLoader::new()?;
         let func = loader.load(&ctx)?;
         let output: Config = func.call(())?;
-        print!("{}", render_prompt(&output.format));
+        print!("{}", output.format);
     } else {
         let stream = connect_or_spawn_daemon()?;
         let prompt = starship::run(stream, &ctx)?;

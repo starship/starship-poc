@@ -1,6 +1,6 @@
 use anyhow::Result;
 use mlua::{FromLua, Lua, MultiValue, Result as LuaResult, UserData, Value};
-use starship_common::styled::{Color, Style, StyledContent};
+use starship_common::styled::{Color, Span, Style, StyledContent};
 
 /// Registers the `compact` global: filters nil arguments and joins the
 /// remaining elements with a space separator.
@@ -15,22 +15,22 @@ pub fn register_compact_function(lua: &Lua) -> Result<()> {
     lua.globals().set(
         "compact",
         lua.create_function(|_, args: MultiValue| {
-            let mut children: Vec<StyledContent> = Vec::new();
+            let mut spans: Vec<Span> = Vec::new();
 
             for value in args {
                 if matches!(value, Value::Nil) {
                     continue;
                 }
-                if !children.is_empty() {
-                    children.push(StyledContent::Text(" ".to_string()));
+                if !spans.is_empty() {
+                    spans.push(Span::plain(" ".to_string()));
                 }
                 match value {
                     Value::String(s) => {
-                        children.push(StyledContent::Text(s.to_str()?.to_string()));
+                        spans.push(Span::plain(s.to_str()?.to_string()));
                     }
                     Value::UserData(ud) => {
                         let content = ud.borrow::<LuaStyledContent>()?;
-                        children.push(content.0.clone());
+                        spans.extend_from_slice(&content.0);
                     }
                     _ => {
                         return Err(mlua::Error::RuntimeError(
@@ -40,17 +40,7 @@ pub fn register_compact_function(lua: &Lua) -> Result<()> {
                 }
             }
 
-            if children.len() <= 1 {
-                let content = children
-                    .into_iter()
-                    .next()
-                    .unwrap_or(StyledContent::Text(String::new()));
-                return Ok(LuaStyledContent(content));
-            }
-            Ok(LuaStyledContent(StyledContent::Styled {
-                style: Style::default(),
-                children,
-            }))
+            Ok(LuaStyledContent(spans))
         })?,
     )?;
     Ok(())
@@ -95,10 +85,10 @@ pub fn register_style_functions(lua: &Lua) -> Result<()> {
 
 fn create_color_fn(lua: &Lua, color: Color, bg: bool) -> Result<mlua::Function> {
     lua.create_function(move |_, args: MultiValue| {
-        let Some(children) = collect_children(args)? else {
+        let Some(mut spans) = collect_children(args)? else {
             return Ok(None);
         };
-        let style = if bg {
+        let parent = if bg {
             Style {
                 bg: Some(color),
                 ..Default::default()
@@ -109,40 +99,40 @@ fn create_color_fn(lua: &Lua, color: Color, bg: bool) -> Result<mlua::Function> 
                 ..Default::default()
             }
         };
-        Ok(Some(LuaStyledContent(StyledContent::Styled {
-            style,
-            children,
-        })))
+        for span in &mut spans {
+            span.style = std::mem::take(&mut span.style).merge(&parent);
+        }
+        Ok(Some(LuaStyledContent(spans)))
     })
     .map_err(anyhow::Error::from)
 }
 
 fn create_effect_fn(lua: &Lua, apply: fn(&mut Style)) -> Result<mlua::Function> {
     lua.create_function(move |_, args: MultiValue| {
-        let Some(children) = collect_children(args)? else {
+        let Some(mut spans) = collect_children(args)? else {
             return Ok(None);
         };
-        let mut style = Style::default();
-        apply(&mut style);
-        Ok(Some(LuaStyledContent(StyledContent::Styled {
-            style,
-            children,
-        })))
+        let mut parent = Style::default();
+        apply(&mut parent);
+        for span in &mut spans {
+            span.style = std::mem::take(&mut span.style).merge(&parent);
+        }
+        Ok(Some(LuaStyledContent(spans)))
     })
     .map_err(anyhow::Error::from)
 }
 
-/// Collects arguments into styled children. Returns `None` if any argument
+/// Collects arguments into styled spans. Returns `None` if any argument
 /// is nil, which lets style functions propagate nil upward for use with `compact`.
-fn collect_children(args: MultiValue) -> LuaResult<Option<Vec<StyledContent>>> {
-    let mut children = Vec::new();
+fn collect_children(args: MultiValue) -> LuaResult<Option<Vec<Span>>> {
+    let mut spans = Vec::new();
     for arg in args {
         match arg {
             Value::Nil => return Ok(None),
-            Value::String(s) => children.push(StyledContent::Text(s.to_str()?.to_string())),
+            Value::String(s) => spans.push(Span::plain(s.to_str()?.to_string())),
             Value::UserData(ud) => {
                 let content = ud.borrow::<LuaStyledContent>()?;
-                children.push(content.0.clone());
+                spans.extend_from_slice(&content.0);
             }
             _ => {
                 return Err(mlua::Error::RuntimeError(
@@ -151,47 +141,42 @@ fn collect_children(args: MultiValue) -> LuaResult<Option<Vec<StyledContent>>> {
             }
         }
     }
-    Ok(Some(children))
+    Ok(Some(spans))
 }
 
-/// Wrapper for `StyledContent`, enabling it to be used in Lua.
-pub struct LuaStyledContent(pub StyledContent);
+/// Wrapper for styled spans, enabling them to be used in Lua.
+pub struct LuaStyledContent(pub Vec<Span>);
 impl UserData for LuaStyledContent {
     fn add_methods<M: mlua::UserDataMethods<Self>>(methods: &mut M) {
         // Enables `..` between strings and styled content in Lua, in either order.
         // Plain strings are converted via `FromLua` before reaching this handler.
-        // Wraps both sides in an unstyled parent node to preserve the styled tree.
         methods.add_meta_method("__concat", |_, this, other: Self| {
-            Ok(Self(StyledContent::Styled {
-                style: Style::default(),
-                children: vec![this.0.clone(), other.0],
-            }))
+            let mut spans = this.0.clone();
+            spans.extend(other.0);
+            Ok(Self(spans))
         });
     }
 }
 impl From<LuaStyledContent> for StyledContent {
     fn from(val: LuaStyledContent) -> Self {
-        val.0
+        StyledContent(val.0)
     }
 }
 
 impl FromLua for LuaStyledContent {
     fn from_lua(value: Value, _lua: &Lua) -> LuaResult<Self> {
         match value {
-            Value::String(s) => Ok(Self(StyledContent::Text(s.to_str()?.to_string()))),
+            Value::String(s) => Ok(Self(vec![Span::plain(s.to_str()?.to_string())])),
             Value::UserData(ud) => {
                 let content = ud.borrow::<Self>()?;
                 Ok(Self(content.0.clone()))
             }
             Value::Table(table) => {
-                let children: Vec<StyledContent> = table
-                    .sequence_values::<Self>()
-                    .map(|value| value.map(|content| content.0))
-                    .collect::<LuaResult<_>>()?;
-                Ok(Self(StyledContent::Styled {
-                    style: Style::default(),
-                    children,
-                }))
+                let mut spans = Vec::new();
+                for value in table.sequence_values::<Self>() {
+                    spans.extend(value?.0);
+                }
+                Ok(Self(spans))
             }
             _ => Err(mlua::Error::FromLuaConversionError {
                 from: value.type_name(),

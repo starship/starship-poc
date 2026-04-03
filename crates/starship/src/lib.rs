@@ -1,5 +1,5 @@
 use anyhow::{Context, Result};
-use starship_common::{render_prompt, styled::StyledContent, ShellContext};
+use starship_common::{styled::StyledContent, ShellContext};
 use std::io::{BufRead, BufReader, Read, Write};
 
 pub fn run<S: Read + Write>(mut stream: S, context: &ShellContext) -> Result<String> {
@@ -17,6 +17,5 @@ pub fn run<S: Read + Write>(mut stream: S, context: &ShellContext) -> Result<Str
 
     // Parse the response from the daemon
     let prompt: StyledContent = serde_json::from_str(&line).context("Failed to parse response")?;
-    let rendered_prompt = render_prompt(&prompt);
-    Ok(rendered_prompt)
+    Ok(prompt.to_string())
 }

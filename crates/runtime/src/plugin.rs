@@ -429,7 +429,7 @@ pub mod test_helpers {
 
         pub fn render(&mut self, lua_expr: &str) -> String {
             use crate::config::{Config, ConfigLoader};
-            use starship_common::{styled::StyledContent, ShellContext};
+            use starship_common::ShellContext;
 
             self.plugin.update_context(&self.dir.clone());
             let lua_src = format!(r#"return {{ format = {lua_expr} }}"#);
@@ -442,10 +442,7 @@ pub mod test_helpers {
             };
             let func = loader.load(&ctx).expect("config should load");
             let output: Config = func.call(()).expect("lua should evaluate");
-            match output.format {
-                StyledContent::Text(t) => t,
-                other => format!("{other:?}"),
-            }
+            output.format.to_string()
         }
 
         fn plugin_for_loader(&self) -> WasmPlugin {
