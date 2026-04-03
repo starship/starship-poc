@@ -3,7 +3,7 @@ use divan::{black_box, Bencher};
 use starship_common::{render_prompt, ShellContext};
 use starship_daemon::handle_client;
 use starship_runtime::plugin::test_helpers::PluginFixture;
-use starship_runtime::plugin::{Engine, WasmPlugin};
+use starship_runtime::plugin::WasmPlugin;
 use starship_runtime::ConfigLoader;
 use std::path::Path;
 use std::{os::unix::net::UnixStream, path::PathBuf};
@@ -31,12 +31,7 @@ const COMPACT_CONFIG: BenchConfig = BenchConfig {
     "#,
 };
 
-const PLUGIN_CONFIG: BenchConfig = BenchConfig {
-    name: "Plugin",
-    source: r#"
-        return { format = compact(green("test:", test.home), ctx.pwd, "❯") }
-    "#,
-};
+const PLUGIN_EXPR: &str = r#"compact(green("test:", test.home), ctx.pwd, "❯")"#;
 
 const ALL_CONFIGS: [BenchConfig; 3] = [MINIMAL_CONFIG, WITH_MODULES_CONFIG, COMPACT_CONFIG];
 
@@ -115,11 +110,11 @@ fn plugin_call_method(bencher: Bencher) {
     });
 }
 
-#[divan::bench(args = [PLUGIN_CONFIG])]
-fn config_with_plugins(bencher: Bencher, config: &BenchConfig) {
+#[divan::bench]
+fn config_with_plugins(bencher: Bencher) {
     let mut fixture = PluginFixture::with_tempdir("starship-plugin-test-harness");
     std::fs::write(fixture.dir.join(".starship-test-marker"), "").unwrap();
     bencher.bench_local(|| {
-        black_box(fixture.render(config.source));
+        black_box(fixture.render(PLUGIN_EXPR));
     });
 }
