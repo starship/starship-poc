@@ -52,6 +52,7 @@ enum ConfigSource {
 /// across loads, so the sandboxed environment is created once at startup.
 pub struct ConfigLoader {
     lua: Lua,
+    config_env: mlua::Table,
     source: ConfigSource,
     cached_func: Option<mlua::Function>,
     cached_mtime: Option<SystemTime>,
@@ -66,10 +67,7 @@ impl ConfigLoader {
     }
 
     pub fn from_path(path: impl Into<PathBuf>) -> Result<Self> {
-        let plugin_dir = std::env::var("STARSHIP_PLUGIN_DIR").map_or_else(
-            |_| get_config_dir().unwrap_or_default().join("plugins"),
-            std::path::PathBuf::from,
-        );
+        let plugin_dir = get_plugin_dir();
         let default_pwd = std::env::current_dir().unwrap_or_default();
         let plugins = load_plugins(&Engine::default(), &plugin_dir, &default_pwd)
             .into_iter()
@@ -81,8 +79,11 @@ impl ConfigLoader {
             register_plugin(&lua, Rc::clone(plugin))?;
         }
 
+        let config_env = create_config_env(&lua)?;
+
         Ok(Self {
             lua,
+            config_env,
             source: ConfigSource::File(path.into()),
             cached_func: None,
             cached_mtime: None,
@@ -97,7 +98,6 @@ impl ConfigLoader {
 
     pub fn from_source_with_plugins(source: &str, plugins: Vec<WasmPlugin>) -> Result<Self> {
         let lua = create_lua()?;
-        let func = lua.load(source).into_function()?;
         let plugins = plugins
             .into_iter()
             .map(|p| Rc::new(RefCell::new(p)))
@@ -107,8 +107,15 @@ impl ConfigLoader {
             register_plugin(&lua, Rc::clone(plugin))?;
         }
 
+        let config_env = create_config_env(&lua)?;
+        let func = lua
+            .load(source)
+            .set_environment(config_env.clone())
+            .into_function()?;
+
         Ok(Self {
             lua,
+            config_env,
             source: ConfigSource::Inline,
             cached_func: Some(func),
             cached_mtime: None,
@@ -144,7 +151,12 @@ impl ConfigLoader {
         }
 
         let content = fs::read_to_string(path)?;
-        self.cached_func = Some(self.lua.load(&content).into_function()?);
+        self.cached_func = Some(
+            self.lua
+                .load(&content)
+                .set_environment(self.config_env.clone())
+                .into_function()?,
+        );
         self.cached_mtime = Some(mtime);
         Ok(())
     }
@@ -177,13 +189,87 @@ fn create_lua() -> Result<Lua> {
     Ok(lua)
 }
 
+/// Creates an environment table for config chunks that proxies to globals
+/// but returns nil-proxy tables for undefined names (e.g. uninstalled plugins).
+/// This prevents "attempt to index nil" errors without modifying the frozen
+/// globals table.
+fn create_config_env(lua: &Lua) -> Result<mlua::Table> {
+    let env = lua.create_table()?;
+    let nil_meta = lua.create_table()?;
+    nil_meta.set(
+        "__index",
+        lua.create_function(|_, (_t, _k): (mlua::Value, mlua::Value)| Ok(mlua::Value::Nil))?,
+    )?;
+
+    let warned = Rc::new(RefCell::new(std::collections::HashSet::<String>::new()));
+    let globals = lua.globals();
+    let env_meta = lua.create_table()?;
+    env_meta.set(
+        "__index",
+        lua.create_function(move |lua, (_env, key): (mlua::Table, String)| {
+            let val: mlua::Value = globals.get(key.as_str())?;
+            if val != mlua::Value::Nil {
+                return Ok(val);
+            }
+            if warned.borrow_mut().insert(key.clone()) {
+                tracing::warn!(
+                    "unknown global '{key}' accessed in config — is the plugin installed?"
+                );
+            }
+            let proxy = lua.create_table()?;
+            proxy.set_metatable(Some(nil_meta.clone()))?;
+            Ok(mlua::Value::Table(proxy))
+        })?,
+    )?;
+    env.set_metatable(Some(env_meta))?;
+    Ok(env)
+}
+
+/// Gets the plugin directory, falling back to `target/wasm32-unknown-unknown/release`
+/// when running from a cargo workspace with compiled plugins.
+fn get_plugin_dir() -> PathBuf {
+    if let Ok(dir) = std::env::var("STARSHIP_PLUGIN_DIR") {
+        return PathBuf::from(dir);
+    }
+
+    let default_dir = get_config_dir().unwrap_or_default().join("plugins");
+
+    if has_wasm_files(&default_dir) {
+        return default_dir;
+    }
+
+    let wasm_target = std::env::current_dir()
+        .unwrap_or_default()
+        .join("target/wasm32-unknown-unknown/release");
+    if has_wasm_files(&wasm_target) {
+        return wasm_target;
+    }
+
+    default_dir
+}
+
+fn has_wasm_files(dir: &std::path::Path) -> bool {
+    std::fs::read_dir(dir).is_ok_and(|mut entries| {
+        entries.any(|e: std::result::Result<std::fs::DirEntry, _>| {
+            e.is_ok_and(|e| e.path().extension().is_some_and(|ext| ext == "wasm"))
+        })
+    })
+}
+
 /// Gets the path to the config file.
 ///
 /// Checks `STARSHIP_CONFIG` env var first, then falls back to
-/// `~/.config/starship/config.lua`.
+/// `~/.config/starship/config.lua`. Ignores `.toml` values from
+/// the env var (leftover from starship v1).
 fn get_config_path() -> Result<PathBuf> {
     if let Ok(path) = std::env::var("STARSHIP_CONFIG") {
-        return Ok(PathBuf::from(path));
+        let path = PathBuf::from(path);
+        if path
+            .extension()
+            .is_none_or(|ext| !ext.eq_ignore_ascii_case("toml"))
+        {
+            return Ok(path);
+        }
     }
     let config_dir = get_config_dir()?;
     Ok(config_dir.join("config.lua"))
