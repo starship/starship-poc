@@ -383,7 +383,6 @@ pub mod test_helpers {
         pub dir: PathBuf,
         plugin: WasmPlugin,
         module: Module,
-        crate_name: String,
         _tempdir: tempfile::TempDir,
     }
 
@@ -400,7 +399,6 @@ pub mod test_helpers {
                 dir: pwd.to_path_buf(),
                 plugin,
                 module,
-                crate_name: crate_name.to_string(),
                 _tempdir: tempfile::TempDir::new().unwrap(),
             }
         }
@@ -419,7 +417,6 @@ pub mod test_helpers {
                 dir: path,
                 plugin,
                 module,
-                crate_name: crate_name.to_string(),
                 _tempdir: dir,
             }
         }
