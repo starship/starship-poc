@@ -13,7 +13,7 @@ divan = { version = "4", package = "codspeed-divan-compat" }
 starship = { workspace = true }
 starship-common = { workspace = true }
 starship-daemon = { workspace = true }
-starship-runtime = { workspace = true }
+starship-runtime = { workspace = true, features = ["testing"] }
 
 [[bench]]
 name = "starship_bench"
