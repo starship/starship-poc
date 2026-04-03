@@ -1,15 +1,11 @@
 use std::process::Command;
-use std::time::Instant;
 use std::{env, fs, io::Write, path::Path};
 
 /// Generates a compile-time icon lookup table from vendored Nerd Font glyphnames.json.
 /// Source: <https://github.com/ryanoasis/nerd-fonts/blob/master/glyphnames.json>
 fn main() {
-    println!("cargo::warning=[build.rs] starting");
     build_icons();
-    println!("cargo::warning=[build.rs] icons done, building test plugins...");
     build_test_plugins();
-    println!("cargo::warning=[build.rs] done");
 }
 
 fn build_icons() {
@@ -47,9 +43,22 @@ fn build_test_plugins() {
 
     let cargo = env::var("CARGO").unwrap_or_else(|_| "cargo".to_string());
 
+    // Use a separate target dir to avoid deadlocking on the parent cargo's
+    // target directory lock (https://github.com/rust-lang/cargo/issues/6412).
+    let manifest_dir = env::var("CARGO_MANIFEST_DIR").unwrap();
+    let workspace_root = Path::new(&manifest_dir)
+        .parent()
+        .and_then(|p| p.parent())
+        .expect("workspace root");
+    let wasm_target_dir = workspace_root.join("target/wasm-plugins");
+    let wasm_release_dir = wasm_target_dir.join("wasm32-unknown-unknown/release");
+
+    println!(
+        "cargo::rustc-env=WASM_PLUGIN_DIR={}",
+        wasm_release_dir.display()
+    );
+
     for plugin in ["starship-plugin-test-harness", "starship-plugin-nodejs"] {
-        println!("cargo::warning=[build.rs] building {plugin}...");
-        let t = Instant::now();
         let status = Command::new(&cargo)
             .args([
                 "build",
@@ -58,16 +67,15 @@ fn build_test_plugins() {
                 "--target",
                 "wasm32-unknown-unknown",
                 "--release",
-                "-vv",
+                "--target-dir",
             ])
+            .arg(&wasm_target_dir)
             .env_remove("CARGO_MAKEFLAGS")
             .env_remove("MAKEFLAGS")
+            .env_remove("MFLAGS")
+            .env_remove("RUSTFLAGS")
             .status()
             .unwrap_or_else(|e| panic!("failed to run cargo build for {plugin}: {e}"));
-        println!(
-            "cargo::warning=[build.rs] {plugin} finished in {:.1}s",
-            t.elapsed().as_secs_f64()
-        );
 
         assert!(
             status.success(),
