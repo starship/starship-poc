@@ -369,14 +369,7 @@ pub mod test_helpers {
     use super::WasmPlugin;
 
     fn wasm_path(name: &str) -> PathBuf {
-        Path::new(env!("CARGO_MANIFEST_DIR"))
-            .parent()
-            .and_then(|path| path.parent())
-            .unwrap_or_else(|| Path::new("/"))
-            .join(format!(
-                "target/wasm32-unknown-unknown/release/{}.wasm",
-                name.replace('-', "_")
-            ))
+        Path::new(env!("WASM_PLUGIN_DIR")).join(format!("{}.wasm", name.replace('-', "_")))
     }
 
     pub struct PluginFixture {
