@@ -52,7 +52,10 @@ fn build_test_plugins() {
                 "--target",
                 "wasm32-unknown-unknown",
                 "--release",
+                "-vv",
             ])
+            .env_remove("CARGO_MAKEFLAGS")
+            .env_remove("MAKEFLAGS")
             .status()
             .unwrap_or_else(|e| panic!("failed to run cargo build for {plugin}: {e}"));
 

@@ -24,7 +24,7 @@ jobs:
       - uses: taiki-e/install-action@v2
         with:
           tool: cargo-codspeed
-      - run: cargo codspeed build -p starship-bench -m walltime
+      - run: cargo codspeed build -p starship-bench -m walltime -vv
       - uses: actions/upload-artifact@v7
         with:
           name: codspeed-benchmarks
