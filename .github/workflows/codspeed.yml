@@ -12,12 +12,10 @@ permissions:
   id-token: write
 
 jobs:
-  build:
-    name: Build benchmarks (${{ matrix.mode }})
+  build-walltime:
+    name: Build benchmarks (walltime)
     runs-on: ubuntu-24.04-arm
-    strategy:
-      matrix:
-        mode: [walltime, memory]
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v6
       - uses: actions-rust-lang/setup-rust-toolchain@v1
@@ -26,25 +24,39 @@ jobs:
       - uses: taiki-e/install-action@v2
         with:
           tool: cargo-codspeed
-      - run: cargo codspeed build -p starship-bench -m ${{ matrix.mode }}
+      - run: cargo codspeed build -p starship-bench -m walltime
       - uses: actions/upload-artifact@v7
         with:
-          name: codspeed-${{ matrix.mode }}
+          name: codspeed-walltime
           path: target/codspeed
           if-no-files-found: error
           retention-days: 1
 
-  run:
-    name: Run benchmarks (${{ matrix.mode }})
-    needs: build
-    strategy:
-      matrix:
-        include:
-          - mode: walltime
-            runner: codspeed-macro
-          - mode: memory
-            runner: ubuntu-24.04-arm
-    runs-on: ${{ matrix.runner }}
+  build-memory:
+    name: Build benchmarks (memory)
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          target: wasm32-unknown-unknown
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-codspeed
+      - run: cargo codspeed build -p starship-bench -m memory
+      - uses: actions/upload-artifact@v7
+        with:
+          name: codspeed-memory
+          path: target/codspeed
+          if-no-files-found: error
+          retention-days: 1
+
+  run-walltime:
+    name: Run benchmarks (walltime)
+    needs: build-walltime
+    runs-on: codspeed-macro
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v6
       - uses: taiki-e/install-action@v2
@@ -52,10 +64,30 @@ jobs:
           tool: cargo-codspeed
       - uses: actions/download-artifact@v8
         with:
-          name: codspeed-${{ matrix.mode }}
+          name: codspeed-walltime
           path: target/codspeed
       - run: find target/codspeed -type f -exec chmod +x {} +
       - uses: CodSpeedHQ/action@v4
         with:
-          mode: ${{ matrix.mode }}
+          mode: walltime
+          run: cargo codspeed run
+
+  run-memory:
+    name: Run benchmarks (memory)
+    needs: build-memory
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v6
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-codspeed
+      - uses: actions/download-artifact@v8
+        with:
+          name: codspeed-memory
+          path: target/codspeed
+      - run: find target/codspeed -type f -exec chmod +x {} +
+      - uses: CodSpeedHQ/action@v4
+        with:
+          mode: memory
           run: cargo codspeed run
