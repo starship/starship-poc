@@ -1,12 +1,14 @@
 use crate::config::nerd_font::register_icon_function;
 use crate::config::style::{register_compact_function, register_style_functions, LuaStyledContent};
+use crate::exec_cache::ExecCache;
 use crate::plugin::{load_plugins, register_plugin, WasmPlugin};
 use anyhow::Result;
 use mlua::{FromLua, Lua, LuaOptions, LuaSerdeExt, SerializeOptions, StdLib};
 use serde::{Deserialize, Serialize};
-use starship_common::{get_config_dir, styled::StyledContent, ShellContext};
+use starship_common::{get_cache_dir, get_config_dir, styled::StyledContent, ShellContext};
 use std::cell::RefCell;
 use std::rc::Rc;
+use std::sync::Arc;
 use std::{fs, path::PathBuf, time::SystemTime};
 use tracing::instrument;
 use wasmtime::Engine;
@@ -69,7 +71,8 @@ impl ConfigLoader {
     pub fn from_path(path: impl Into<PathBuf>) -> Result<Self> {
         let plugin_dir = get_plugin_dir();
         let default_pwd = std::env::current_dir().unwrap_or_default();
-        let plugins = load_plugins(&Engine::default(), &plugin_dir, &default_pwd)
+        let exec_cache = Arc::new(create_exec_cache());
+        let plugins = load_plugins(&Engine::default(), &plugin_dir, &default_pwd, &exec_cache)
             .into_iter()
             .map(|p| Rc::new(RefCell::new(p)))
             .collect();
@@ -246,6 +249,16 @@ fn get_plugin_dir() -> PathBuf {
     }
 
     default_dir
+}
+
+fn create_exec_cache() -> ExecCache {
+    get_cache_dir().map_or_else(
+        |_| {
+            tracing::warn!("failed to resolve cache dir, exec cache will be in-memory only");
+            ExecCache::load(PathBuf::from("/dev/null"))
+        },
+        |dir| ExecCache::load(dir.join("exec_cache.json")),
+    )
 }
 
 fn has_wasm_files(dir: &std::path::Path) -> bool {
@@ -435,10 +448,7 @@ mod tests {
 
     #[test]
     fn stdlib_globals_resolve_through_env() {
-        assert_eq!(
-            render(r"return { format = tostring(math.max(1, 2)) }"),
-            "2",
-        );
+        assert_eq!(render(r"return { format = tostring(math.max(1, 2)) }"), "2",);
     }
 
     #[test]

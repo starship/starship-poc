@@ -1,6 +1,7 @@
 use std::cell::{Cell, RefCell};
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
+use std::sync::Arc;
 
 use anyhow::{anyhow, Result};
 use mlua::{Lua, LuaSerdeExt, Table};
@@ -9,8 +10,11 @@ use starship_plugin_core::{from_bitwise, into_bitwise};
 use tracing::instrument;
 use wasmtime::{Caller, Engine, Linker, Memory, Module, Store, TypedFunc};
 
+use crate::exec_cache::ExecCache;
+
 struct HostState {
     pwd: PathBuf,
+    exec_cache: Arc<ExecCache>,
 }
 
 struct GuestExports {
@@ -92,16 +96,43 @@ fn host_exec(caller: &mut Caller<'_, HostState>, packed: u64) -> Result<u64> {
     caller_dealloc(caller, packed)?;
     let (cmd, args): (String, Vec<String>) = serde_json::from_slice(&bytes)?;
     let _span = tracing::info_span!("host_exec", %cmd).entered();
-    let output = std::process::Command::new(&cmd)
-        .args(&args)
-        .current_dir(&caller.data().pwd)
-        .output();
-    let result: Option<String> = output
-        .ok()
-        .filter(|o| o.status.success())
-        .map(|o| String::from_utf8_lossy(&o.stdout).to_string());
+
+    let cache = Arc::clone(&caller.data().exec_cache);
+    if let Some(cached) = cache.get(&cmd, &args) {
+        tracing::debug!("cache hit");
+        let result: Option<String> = Some(cached);
+        let json = serde_json::to_vec(&result)?;
+        return write_guest_bytes(caller, &json);
+    }
+
+    let result = run_command(&cmd, &args, &caller.data().pwd);
+
+    if let Some(ref output) = result {
+        cache.insert(&cmd, &args, output.clone());
+    }
+
     let json = serde_json::to_vec(&result)?;
     write_guest_bytes(caller, &json)
+}
+
+fn host_exec_uncached(caller: &mut Caller<'_, HostState>, packed: u64) -> Result<u64> {
+    let bytes = read_guest_bytes(caller, packed)?;
+    caller_dealloc(caller, packed)?;
+    let (cmd, args): (String, Vec<String>) = serde_json::from_slice(&bytes)?;
+    let _span = tracing::info_span!("host_exec_uncached", %cmd).entered();
+    let result = run_command(&cmd, &args, &caller.data().pwd);
+    let json = serde_json::to_vec(&result)?;
+    write_guest_bytes(caller, &json)
+}
+
+fn run_command(cmd: &str, args: &[String], pwd: &Path) -> Option<String> {
+    std::process::Command::new(cmd)
+        .args(args)
+        .current_dir(pwd)
+        .output()
+        .ok()
+        .filter(|o| o.status.success())
+        .map(|o| String::from_utf8_lossy(&o.stdout).to_string())
 }
 
 #[instrument(skip_all)]
@@ -134,6 +165,15 @@ fn create_linker(engine: &Engine) -> Result<Linker<HostState>> {
 
     linker.func_wrap(
         "env",
+        "_plugin_host_exec_uncached",
+        |mut caller: Caller<'_, HostState>, packed: u64| -> wasmtime::Result<u64> {
+            host_exec_uncached(&mut caller, packed)
+                .map_err(|err| wasmtime::Error::msg(err.to_string()))
+        },
+    )?;
+
+    linker.func_wrap(
+        "env",
         "_plugin_host_file_exists",
         |mut caller: Caller<'_, HostState>, packed: u64| -> wasmtime::Result<u32> {
             host_file_exists(&mut caller, packed)
@@ -147,22 +187,29 @@ fn create_linker(engine: &Engine) -> Result<Linker<HostState>> {
 impl WasmPlugin {
     /// Loads a WASM plugin by compiling bytes and instantiating the module.
     ///
-    /// Links host functions (`get_env`, `exec`, `file_exists`), instantiates the module,
-    /// reads the plugin name, and creates a guest-side instance handle.
-    pub fn load(engine: &Engine, wasm_bytes: &[u8], pwd: &Path) -> Result<Self> {
+    /// Links host functions (`get_env`, `exec`, `exec_uncached`, `file_exists`),
+    /// instantiates the module, reads the plugin name, and creates a guest-side
+    /// instance handle.
+    pub fn load(
+        engine: &Engine,
+        wasm_bytes: &[u8],
+        pwd: &Path,
+        exec_cache: Arc<ExecCache>,
+    ) -> Result<Self> {
         let module = tracing::info_span!("compile").in_scope(|| Module::new(engine, wasm_bytes))?;
-        Self::from_module(&module, pwd)
+        Self::from_module(&module, pwd, exec_cache)
     }
 
     /// Creates a plugin instance from a pre-compiled module, skipping WASM
     /// compilation. Use when instantiating the same plugin multiple times.
-    pub fn from_module(module: &Module, pwd: &Path) -> Result<Self> {
+    pub fn from_module(module: &Module, pwd: &Path, exec_cache: Arc<ExecCache>) -> Result<Self> {
         let engine = module.engine();
         let linker = create_linker(engine)?;
         let mut store = Store::new(
             engine,
             HostState {
                 pwd: pwd.to_path_buf(),
+                exec_cache,
             },
         );
         let instance = tracing::info_span!("instantiate")
@@ -341,8 +388,13 @@ pub fn register_plugin(lua: &Lua, plugin: Rc<RefCell<WasmPlugin>>) -> mlua::Resu
 /// Returns an empty vec if the directory doesn't exist. Logs and skips
 /// individual plugins that fail to load.
 #[must_use]
-#[instrument(skip(engine, pwd))]
-pub fn load_plugins(engine: &Engine, plugin_dir: &Path, pwd: &Path) -> Vec<WasmPlugin> {
+#[instrument(skip(engine, pwd, exec_cache))]
+pub fn load_plugins(
+    engine: &Engine,
+    plugin_dir: &Path,
+    pwd: &Path,
+    exec_cache: &Arc<ExecCache>,
+) -> Vec<WasmPlugin> {
     if !plugin_dir.exists() {
         return vec![];
     }
@@ -360,7 +412,7 @@ pub fn load_plugins(engine: &Engine, plugin_dir: &Path, pwd: &Path) -> Vec<WasmP
                 plugin = %path.file_stem().unwrap_or_default().to_string_lossy(),
             )
             .entered();
-            match WasmPlugin::load(engine, &bytes, pwd) {
+            match WasmPlugin::load(engine, &bytes, pwd, Arc::clone(exec_cache)) {
                 Ok(plugin) => Some(plugin),
                 Err(err) => {
                     tracing::error!("Failed to load plugin {}: {}", path.display(), err);
@@ -374,10 +426,12 @@ pub fn load_plugins(engine: &Engine, plugin_dir: &Path, pwd: &Path) -> Vec<WasmP
 #[cfg(any(test, feature = "testing"))]
 pub mod test_helpers {
     use std::path::PathBuf;
+    use std::sync::Arc;
 
     use wasmtime::{Engine, Module};
 
     use super::WasmPlugin;
+    use crate::exec_cache::ExecCache;
 
     pub const TEST_HARNESS_WASM: &[u8] = include_bytes!(concat!(
         env!("WASM_PLUGIN_DIR"),
@@ -404,7 +458,9 @@ pub mod test_helpers {
             let path = dir.path().to_path_buf();
             let engine = Engine::default();
             let module = Module::new(&engine, bytes).expect("plugin should compile");
-            let plugin = WasmPlugin::from_module(&module, &path).expect("plugin should load");
+            let cache = Arc::new(ExecCache::in_memory());
+            let plugin =
+                WasmPlugin::from_module(&module, &path, cache).expect("plugin should load");
             Self {
                 dir: path,
                 plugin,
@@ -450,7 +506,8 @@ pub mod test_helpers {
         }
 
         fn plugin_for_loader(&self) -> WasmPlugin {
-            WasmPlugin::from_module(&self.module, &self.dir).expect("plugin should load")
+            let cache = Arc::new(ExecCache::in_memory());
+            WasmPlugin::from_module(&self.module, &self.dir, cache).expect("plugin should load")
         }
     }
 
@@ -467,11 +524,13 @@ pub mod test_helpers {
 #[cfg(test)]
 mod tests {
     use std::fs;
+    use std::sync::Arc;
 
     use mlua::{Lua, LuaOptions, StdLib};
     use wasmtime::Engine;
 
     use super::load_plugins;
+    use crate::exec_cache::ExecCache;
     use crate::plugin_fixture;
 
     #[test]
@@ -511,7 +570,8 @@ mod tests {
         let dir = tempfile::tempdir().expect("tempdir");
         let plugin_dir = tempfile::tempdir().expect("plugin dir");
         let engine = Engine::default();
-        let plugins = load_plugins(&engine, plugin_dir.path(), dir.path());
+        let cache = Arc::new(ExecCache::in_memory());
+        let plugins = load_plugins(&engine, plugin_dir.path(), dir.path(), &cache);
         assert!(plugins.is_empty());
     }
 

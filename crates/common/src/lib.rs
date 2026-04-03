@@ -19,3 +19,11 @@ pub fn get_config_dir() -> Result<PathBuf> {
     let starship_dir = config_dir.join("starship");
     Ok(starship_dir)
 }
+
+pub fn get_cache_dir() -> Result<PathBuf> {
+    if let Ok(xdg_cache) = std::env::var("XDG_CACHE_HOME") {
+        return Ok(PathBuf::from(xdg_cache).join("starship"));
+    }
+    let user_dirs = UserDirs::new().with_context(|| "Failed to get user directories")?;
+    Ok(user_dirs.home_dir().join(".cache").join("starship"))
+}
