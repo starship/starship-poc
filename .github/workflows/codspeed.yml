@@ -13,9 +13,11 @@ permissions:
 
 jobs:
   build:
-    name: Build benchmarks
+    name: Build benchmarks (${{ matrix.mode }})
     runs-on: ubuntu-24.04-arm
-    timeout-minutes: 45
+    strategy:
+      matrix:
+        mode: [walltime, memory]
     steps:
       - uses: actions/checkout@v6
       - uses: actions-rust-lang/setup-rust-toolchain@v1
@@ -24,27 +26,33 @@ jobs:
       - uses: taiki-e/install-action@v2
         with:
           tool: cargo-codspeed
-      - run: cargo codspeed build -p starship-bench -m walltime
+      - run: cargo codspeed build -p starship-bench -m ${{ matrix.mode }}
       - uses: actions/upload-artifact@v7
         with:
-          name: codspeed-benchmarks
+          name: codspeed-${{ matrix.mode }}
           path: target/codspeed
           if-no-files-found: error
           retention-days: 1
 
   run:
-    name: Run benchmarks
+    name: Run benchmarks (${{ matrix.mode }})
     needs: build
-    runs-on: codspeed-macro
-    timeout-minutes: 20
+    strategy:
+      matrix:
+        include:
+          - mode: walltime
+            runner: codspeed-macro
+          - mode: memory
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
     steps:
       - uses: actions/checkout@v6
       - uses: actions/download-artifact@v8
         with:
-          name: codspeed-benchmarks
+          name: codspeed-${{ matrix.mode }}
           path: target/codspeed
       - run: find target/codspeed -type f -exec chmod +x {} +
       - uses: CodSpeedHQ/action@v4
         with:
-          mode: walltime
+          mode: ${{ matrix.mode }}
           run: cargo codspeed run
