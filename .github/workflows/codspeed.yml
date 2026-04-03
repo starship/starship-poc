@@ -69,6 +69,7 @@ jobs:
       - uses: actions/download-artifact@v8
         with:
           name: codspeed-walltime
+          path: .
       - run: find target/codspeed -type f -exec chmod +x {} +
       - uses: CodSpeedHQ/action@v4
         with:
@@ -88,6 +89,7 @@ jobs:
       - uses: actions/download-artifact@v8
         with:
           name: codspeed-memory
+          path: .
       - run: find target/codspeed -type f -exec chmod +x {} +
       - uses: CodSpeedHQ/action@v4
         with:
