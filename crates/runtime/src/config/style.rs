@@ -159,7 +159,7 @@ impl UserData for LuaStyledContent {
 }
 impl From<LuaStyledContent> for StyledContent {
     fn from(val: LuaStyledContent) -> Self {
-        StyledContent(val.0)
+        Self(val.0)
     }
 }
 
