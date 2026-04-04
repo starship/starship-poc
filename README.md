@@ -21,6 +21,7 @@ This repo is meant to serve as a proof of concept for a new architecture for Sta
 - [ ] Budget: 16.67ms (60fps) or 8.33ms (120fps)
 - [x] Daemon responds to `nc` for other shell prompts to use:
       `echo '{"pwd":"'$PWD'","user":"'$USER'"}' | nc -U ~/.config/starship/starship.sock`
+- [x] Cache binary output keyed by resolved path, size, and mtime
 - [ ] Have modules enable based on repo root
 
 
