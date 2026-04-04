@@ -97,8 +97,7 @@ fn host_exec(caller: &mut Caller<'_, HostState>, packed: u64) -> Result<u64> {
     let (cmd, args): (String, Vec<String>) = serde_json::from_slice(&bytes)?;
     let _span = tracing::info_span!("host_exec", %cmd).entered();
 
-    let cache = Arc::clone(&caller.data().exec_cache);
-    if let Some(cached) = cache.get(&cmd, &args) {
+    if let Some(cached) = caller.data().exec_cache.get(&cmd, &args) {
         tracing::debug!("cache hit");
         let result: Option<String> = Some(cached);
         let json = serde_json::to_vec(&result)?;
@@ -108,7 +107,7 @@ fn host_exec(caller: &mut Caller<'_, HostState>, packed: u64) -> Result<u64> {
     let result = run_command(&cmd, &args, &caller.data().pwd);
 
     if let Some(ref output) = result {
-        cache.insert(&cmd, &args, output.clone());
+        caller.data().exec_cache.insert(&cmd, &args, output.clone());
     }
 
     let json = serde_json::to_vec(&result)?;

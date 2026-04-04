@@ -9,7 +9,7 @@
 //! `$XDG_CACHE_HOME/starship/exec_cache.json` immediately.
 
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::time::UNIX_EPOCH;
 
 use dashmap::DashMap;
@@ -123,10 +123,14 @@ fn build_key(cmd: &str, args: &[String]) -> Option<ExecCacheKey> {
             return None;
         }
     };
-    let metadata = match fs::metadata(&binary_path) {
+    key_for_path(&binary_path, args)
+}
+
+fn key_for_path(binary_path: &Path, args: &[String]) -> Option<ExecCacheKey> {
+    let metadata = match fs::metadata(binary_path) {
         Ok(m) => m,
         Err(e) => {
-            tracing::warn!(cmd, path = %binary_path.display(), %e, "exec cache: stat failed");
+            tracing::warn!(path = %binary_path.display(), %e, "exec cache: stat failed");
             return None;
         }
     };
@@ -134,7 +138,7 @@ fn build_key(cmd: &str, args: &[String]) -> Option<ExecCacheKey> {
     let duration = mtime.duration_since(UNIX_EPOCH).ok()?;
     #[allow(clippy::cast_possible_truncation)]
     Some(ExecCacheKey {
-        binary_path,
+        binary_path: binary_path.to_path_buf(),
         binary_size: metadata.len(),
         mtime_nanos: duration.as_nanos() as u64,
         args: args.to_vec(),
@@ -169,6 +173,21 @@ mod tests {
         let cache = ExecCache::in_memory();
         let args = vec![];
         assert!(cache.get("this_binary_does_not_exist_xyz", &args).is_none());
+    }
+
+    #[test]
+    fn modified_binary_produces_different_key() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("bin");
+        fs::write(&file, "v1").unwrap();
+
+        let args = vec![];
+        let key1 = key_for_path(&file, &args).unwrap();
+
+        fs::write(&file, "v2 different size").unwrap();
+        let key2 = key_for_path(&file, &args).unwrap();
+
+        assert_ne!(key1, key2);
     }
 
     #[test]

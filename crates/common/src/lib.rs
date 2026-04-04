@@ -14,10 +14,11 @@ use directories::UserDirs;
 use std::path::PathBuf;
 
 pub fn get_config_dir() -> Result<PathBuf> {
+    if let Ok(xdg_config) = std::env::var("XDG_CONFIG_HOME") {
+        return Ok(PathBuf::from(xdg_config).join("starship"));
+    }
     let user_dirs = UserDirs::new().with_context(|| "Failed to get user directories")?;
-    let config_dir = user_dirs.home_dir().join(".config");
-    let starship_dir = config_dir.join("starship");
-    Ok(starship_dir)
+    Ok(user_dirs.home_dir().join(".config").join("starship"))
 }
 
 pub fn get_cache_dir() -> Result<PathBuf> {
