@@ -116,8 +116,20 @@ impl ExecCache {
 /// Build a cache key by resolving the command to an absolute path and
 /// statting the binary for size and mtime.
 fn build_key(cmd: &str, args: &[String]) -> Option<ExecCacheKey> {
-    let binary_path = which::which(cmd).ok()?;
-    let metadata = fs::metadata(&binary_path).ok()?;
+    let binary_path = match which::which(cmd) {
+        Ok(p) => p,
+        Err(e) => {
+            tracing::warn!(cmd, %e, "exec cache: which lookup failed");
+            return None;
+        }
+    };
+    let metadata = match fs::metadata(&binary_path) {
+        Ok(m) => m,
+        Err(e) => {
+            tracing::warn!(cmd, path = %binary_path.display(), %e, "exec cache: stat failed");
+            return None;
+        }
+    };
     let mtime = metadata.modified().ok()?;
     let duration = mtime.duration_since(UNIX_EPOCH).ok()?;
     #[allow(clippy::cast_possible_truncation)]
