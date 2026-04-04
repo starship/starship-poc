@@ -3,7 +3,7 @@ use divan::{black_box, Bencher};
 use starship_common::ShellContext;
 use starship_daemon::handle_client;
 use starship_runtime::plugin::test_helpers::{PluginFixture, TEST_HARNESS_WASM};
-use starship_runtime::plugin::WasmPlugin;
+use starship_runtime::plugin::{self, WasmPlugin};
 use starship_runtime::{ConfigLoader, ExecCache};
 use std::{os::unix::net::UnixStream, path::PathBuf, sync::Arc};
 
@@ -86,7 +86,7 @@ fn cached_config(bencher: Bencher, config: &BenchConfig) {
 
 #[divan::bench]
 fn plugin_load() {
-    let engine = wasmtime::Engine::default();
+    let engine = plugin::create_engine().unwrap();
     let dir = tempfile::tempdir().unwrap();
     black_box(
         WasmPlugin::load(

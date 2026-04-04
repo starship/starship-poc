@@ -8,9 +8,21 @@ use mlua::{Lua, LuaSerdeExt, Table};
 use serde_json::Value;
 use starship_plugin_core::{from_bitwise, into_bitwise};
 use tracing::instrument;
-use wasmtime::{Caller, Engine, Linker, Memory, Module, Store, TypedFunc};
+use wasmtime::{Cache, Caller, Engine, Linker, Memory, Module, Store, TypedFunc};
 
 use crate::exec_cache::ExecCache;
+
+/// Creates a wasmtime Engine with disk-backed compilation caching.
+///
+/// Compiled machine code is persisted to the platform cache directory
+/// (e.g. `~/Library/Caches/wasmtime` on macOS). The cache key includes
+/// the wasm bytes, engine config, and wasmtime version, so it
+/// automatically invalidates when any of these change.
+pub fn create_engine() -> Result<Engine> {
+    let mut config = wasmtime::Config::new();
+    config.cache(Some(Cache::from_file(None)?));
+    Ok(Engine::new(&config)?)
+}
 
 struct HostState {
     pwd: PathBuf,
@@ -427,9 +439,9 @@ pub mod test_helpers {
     use std::path::PathBuf;
     use std::sync::Arc;
 
-    use wasmtime::{Engine, Module};
+    use wasmtime::Module;
 
-    use super::WasmPlugin;
+    use super::{create_engine, WasmPlugin};
     use crate::exec_cache::ExecCache;
 
     pub const TEST_HARNESS_WASM: &[u8] = include_bytes!(concat!(
@@ -455,7 +467,7 @@ pub mod test_helpers {
         pub fn from_wasm(bytes: &[u8]) -> Self {
             let dir = tempfile::TempDir::new().expect("tempdir");
             let path = dir.path().to_path_buf();
-            let engine = Engine::default();
+            let engine = create_engine().expect("engine should build");
             let module = Module::new(&engine, bytes).expect("plugin should compile");
             let cache = Arc::new(ExecCache::in_memory());
             let plugin =
@@ -526,9 +538,8 @@ mod tests {
     use std::sync::Arc;
 
     use mlua::{Lua, LuaOptions, StdLib};
-    use wasmtime::Engine;
 
-    use super::load_plugins;
+    use super::{create_engine, load_plugins};
     use crate::exec_cache::ExecCache;
     use crate::plugin_fixture;
 
@@ -568,7 +579,7 @@ mod tests {
     fn load_plugins_empty_dir_returns_empty_vec() {
         let dir = tempfile::tempdir().expect("tempdir");
         let plugin_dir = tempfile::tempdir().expect("plugin dir");
-        let engine = Engine::default();
+        let engine = create_engine().unwrap();
         let cache = Arc::new(ExecCache::in_memory());
         let plugins = load_plugins(&engine, plugin_dir.path(), dir.path(), &cache);
         assert!(plugins.is_empty());
