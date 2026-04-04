@@ -15,7 +15,7 @@ starship-common = { workspace = true }
 starship-daemon = { workspace = true }
 starship-runtime = { workspace = true, features = ["testing"] }
 tempfile = "3.27.0"
-wasmtime = "43.0.0"
+wasmtime = { version = "43.0.0", features = ["cache"] }
 
 [[bench]]
 name = "starship_bench"
