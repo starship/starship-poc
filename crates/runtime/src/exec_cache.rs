@@ -95,6 +95,7 @@ impl ExecCache {
     }
 
     /// Persist the full cache to disk as a JSON array of `[key, value]` pairs.
+    #[instrument(skip(self))]
     fn flush(&self) {
         let Some(path) = &self.cache_path else {
             return;
