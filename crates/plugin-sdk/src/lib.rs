@@ -22,20 +22,17 @@ pub trait Plugin: Default {
     fn is_applicable(&self) -> bool;
 }
 
-/// Required contract for VCS plugins.
+/// A version control system backend, exposed as a plugin.
 ///
-/// Sibling trait to `Plugin` — VCS plugins implement this instead of `Plugin`.
-/// The `#[export_vcs_plugin]` macro derives `_plugin_is_applicable` from
-/// `detect_depth().is_some()` so authors don't write a generic gate predicate.
-///
-/// `SHADOWS` declares which other VCS plugins this one shadows when colocated
-/// (e.g. jj declares `SHADOWS = &["git"]` to win the resolver tiebreaker on
-/// jj-on-git checkouts). See ADR-0003 for the resolution semantics.
+/// Implement this trait when adding a new VCS (git, jj, hg, ...). Pair it with
+/// an inherent `impl` block annotated `#[export_vcs_plugin]` to generate the
+/// WASM exports the daemon expects. Per-VCS methods (e.g. `jj.change_id`) go
+/// in that inherent block.
 pub trait VcsPlugin: Default {
     /// Unique identifier for the plugin.
     const NAME: &'static str;
 
-    /// VCS plugins this one shadows in the resolver tiebreaker.
+    /// VCSes this one supersedes when colocated, e.g. `&["git"]` on jj.
     const SHADOWS: &'static [&'static str] = &[];
 
     /// Distance from `pwd` to the nearest sentinel (e.g. `.git`, `.jj`),
