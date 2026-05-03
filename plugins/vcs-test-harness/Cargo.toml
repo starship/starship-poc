@@ -1,0 +1,10 @@
+[package]
+name = "starship-plugin-vcs-test-harness"
+version = "0.1.0"
+edition = "2024"
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+starship-plugin-sdk = { path = "../../crates/plugin-sdk" }

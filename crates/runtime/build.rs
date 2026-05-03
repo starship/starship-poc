@@ -40,6 +40,11 @@ fn build_test_plugins() {
     println!("cargo::rerun-if-changed=../../plugins/test-harness/Cargo.toml");
     println!("cargo::rerun-if-changed=../../plugins/nodejs/src");
     println!("cargo::rerun-if-changed=../../plugins/nodejs/Cargo.toml");
+    println!("cargo::rerun-if-changed=../../plugins/vcs-test-harness/src");
+    println!("cargo::rerun-if-changed=../../plugins/vcs-test-harness/Cargo.toml");
+    println!("cargo::rerun-if-changed=../../crates/plugin-sdk/src");
+    println!("cargo::rerun-if-changed=../../crates/plugin-macros/src");
+    println!("cargo::rerun-if-changed=../../crates/plugin-core/src");
 
     let cargo = env::var("CARGO").unwrap_or_else(|_| "cargo".to_string());
 
@@ -58,7 +63,11 @@ fn build_test_plugins() {
         wasm_release_dir.display()
     );
 
-    for plugin in ["starship-plugin-test-harness", "starship-plugin-nodejs"] {
+    for plugin in [
+        "starship-plugin-test-harness",
+        "starship-plugin-nodejs",
+        "starship-plugin-vcs-test-harness",
+    ] {
         let status = Command::new(&cargo)
             .args([
                 "build",

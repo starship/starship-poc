@@ -35,6 +35,9 @@ struct GuestExports {
     dealloc: TypedFunc<u64, ()>,
     call: TypedFunc<(u32, u64), u64>,
     is_applicable: Option<TypedFunc<u32, u64>>,
+    detect_depth: Option<TypedFunc<u32, u64>>,
+    kind: Option<TypedFunc<(), u64>>,
+    shadows: Option<TypedFunc<(), u64>>,
     drop: Option<TypedFunc<u32, ()>>,
 }
 
@@ -236,6 +239,11 @@ impl WasmPlugin {
             is_applicable: instance
                 .get_typed_func(&mut store, "_plugin_is_applicable")
                 .ok(),
+            detect_depth: instance
+                .get_typed_func(&mut store, "_plugin_detect_depth")
+                .ok(),
+            kind: instance.get_typed_func(&mut store, "_plugin_kind").ok(),
+            shadows: instance.get_typed_func(&mut store, "_plugin_shadows").ok(),
             drop: instance.get_typed_func(&mut store, "_plugin_drop").ok(),
         };
 
@@ -260,6 +268,50 @@ impl WasmPlugin {
     #[must_use]
     pub fn name(&self) -> &str {
         &self.name
+    }
+
+    /// Reads the plugin's `_plugin_kind` export, falling back to `"general"`
+    /// when the export is missing (older plugins built before kind classification).
+    pub fn kind(&mut self) -> String {
+        let Some(func) = self.exports.kind.clone() else {
+            return "general".to_string();
+        };
+        let Ok(packed) = func.call(&mut self.store, ()) else {
+            return "general".to_string();
+        };
+        let Ok(bytes) = self.read_guest_bytes(packed) else {
+            return "general".to_string();
+        };
+        let _ = self.exports.dealloc.call(&mut self.store, packed);
+        serde_json::from_slice::<String>(&bytes).unwrap_or_else(|_| "general".to_string())
+    }
+
+    /// Reads the plugin's `_plugin_shadows` export, returning the declared
+    /// list of shadowed plugin names. Empty for plugins missing the export
+    /// or for general (non-VCS) plugins.
+    pub fn shadows(&mut self) -> Vec<String> {
+        let Some(func) = self.exports.shadows.clone() else {
+            return Vec::new();
+        };
+        let Ok(packed) = func.call(&mut self.store, ()) else {
+            return Vec::new();
+        };
+        let Ok(bytes) = self.read_guest_bytes(packed) else {
+            return Vec::new();
+        };
+        let _ = self.exports.dealloc.call(&mut self.store, packed);
+        serde_json::from_slice::<Vec<String>>(&bytes).unwrap_or_default()
+    }
+
+    /// Reads the plugin's `_plugin_detect_depth` export. Returns `None` for
+    /// plugins missing the export (general plugins, or VCS plugins that
+    /// declined to detect at the current pwd).
+    pub fn detect_depth(&mut self) -> Option<u32> {
+        let func = self.exports.detect_depth.clone()?;
+        let packed = func.call(&mut self.store, self.handle).ok()?;
+        let bytes = self.read_guest_bytes(packed).ok()?;
+        let _ = self.exports.dealloc.call(&mut self.store, packed);
+        serde_json::from_slice::<Option<u32>>(&bytes).ok().flatten()
     }
 
     /// Updates the working directory for host function calls and invalidates
@@ -454,6 +506,11 @@ pub mod test_helpers {
         "/starship_plugin_nodejs.wasm"
     ));
 
+    pub const VCS_TEST_HARNESS_WASM: &[u8] = include_bytes!(concat!(
+        env!("WASM_PLUGIN_DIR"),
+        "/starship_plugin_vcs_test_harness.wasm"
+    ));
+
     pub struct PluginFixture {
         pub dir: PathBuf,
         plugin: WasmPlugin,
@@ -497,6 +554,24 @@ pub mod test_helpers {
             self.plugin.is_applicable()
         }
 
+        pub fn kind(&mut self) -> String {
+            self.plugin.kind()
+        }
+
+        pub fn shadows(&mut self) -> Vec<String> {
+            self.plugin.shadows()
+        }
+
+        pub fn detect_depth(&mut self) -> Option<u32> {
+            self.plugin.update_context(&self.dir.clone());
+            self.plugin.detect_depth()
+        }
+
+        #[must_use]
+        pub fn name(&self) -> &str {
+            self.plugin.name()
+        }
+
         #[allow(clippy::missing_panics_doc)]
         pub fn render(&mut self, lua_expr: &str) -> String {
             use crate::config::{Config, ConfigLoader};
@@ -527,6 +602,15 @@ pub mod test_helpers {
         () => {
             $crate::plugin::test_helpers::PluginFixture::from_wasm(
                 $crate::plugin::test_helpers::TEST_HARNESS_WASM,
+            )
+        };
+    }
+
+    #[macro_export]
+    macro_rules! vcs_plugin_fixture {
+        () => {
+            $crate::plugin::test_helpers::PluginFixture::from_wasm(
+                $crate::plugin::test_helpers::VCS_TEST_HARNESS_WASM,
             )
         };
     }
@@ -607,5 +691,66 @@ mod tests {
 
         fs::write(plugin.dir.join(".starship-test-marker"), "").unwrap();
         assert!(plugin.is_applicable());
+    }
+
+    #[test]
+    fn export_plugin_emits_general_kind() {
+        let mut plugin = plugin_fixture!();
+        assert_eq!(plugin.kind(), "general");
+    }
+
+    #[test]
+    fn export_plugin_emits_empty_shadows() {
+        let mut plugin = plugin_fixture!();
+        assert!(plugin.shadows().is_empty());
+    }
+
+    #[test]
+    fn vcs_plugin_loads_with_declared_name() {
+        let plugin = crate::vcs_plugin_fixture!();
+        assert_eq!(plugin.name(), "vcs-test");
+    }
+
+    #[test]
+    fn export_vcs_plugin_emits_vcs_kind() {
+        let mut plugin = crate::vcs_plugin_fixture!();
+        assert_eq!(plugin.kind(), "vcs");
+    }
+
+    #[test]
+    fn export_vcs_plugin_emits_declared_shadows() {
+        let mut plugin = crate::vcs_plugin_fixture!();
+        assert_eq!(plugin.shadows(), vec!["other-vcs".to_string()]);
+    }
+
+    #[test]
+    fn export_vcs_plugin_synthesizes_is_applicable_from_detect_depth() {
+        let mut plugin = crate::vcs_plugin_fixture!();
+        assert!(!plugin.is_applicable());
+
+        fs::write(plugin.dir.join(".vcs-test-marker"), "").unwrap();
+        assert!(plugin.is_applicable());
+    }
+
+    #[test]
+    fn export_vcs_plugin_emits_detect_depth_export() {
+        let mut plugin = crate::vcs_plugin_fixture!();
+        assert_eq!(plugin.detect_depth(), None);
+
+        fs::write(plugin.dir.join(".vcs-test-marker"), "").unwrap();
+        assert_eq!(plugin.detect_depth(), Some(0));
+    }
+
+    #[test]
+    fn export_vcs_plugin_call_routes_root_and_branch_to_trait() {
+        let mut plugin = crate::vcs_plugin_fixture!();
+        assert_eq!(plugin.get("root").as_deref(), Some("/tmp/vcs-test"));
+        assert_eq!(plugin.get("branch").as_deref(), Some("main"));
+    }
+
+    #[test]
+    fn export_vcs_plugin_call_routes_inherent_methods() {
+        let mut plugin = crate::vcs_plugin_fixture!();
+        assert_eq!(plugin.get("change_id").as_deref(), Some("stub-change-id"));
     }
 }
