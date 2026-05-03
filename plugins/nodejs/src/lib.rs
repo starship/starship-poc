@@ -1,4 +1,4 @@
-use starship_plugin_sdk::{Plugin, export_plugin, host};
+use starship_plugin_sdk::{export_plugin, host, Plugin};
 
 #[derive(Default)]
 struct NodejsPlugin;
@@ -6,7 +6,7 @@ struct NodejsPlugin;
 impl Plugin for NodejsPlugin {
     const NAME: &str = "nodejs";
 
-    fn is_active(&self) -> bool {
+    fn is_applicable(&self) -> bool {
         host::file_exists("package.json")
     }
 }

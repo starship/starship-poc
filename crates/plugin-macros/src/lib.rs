@@ -53,13 +53,13 @@ pub fn export_plugin(_attr: TokenStream, item: TokenStream) -> TokenStream {
         }
     };
 
-    let is_active_export = quote! {
+    let is_applicable_export = quote! {
         #[unsafe(no_mangle)]
-        pub extern "C" fn _plugin_is_active(handle: u32) -> u64 {
+        pub extern "C" fn _plugin_is_applicable(handle: u32) -> u64 {
             let Some(instance) = instances().get(&handle) else {
                 return starship_plugin_sdk::write_msg(&false);
             };
-            starship_plugin_sdk::write_msg(&starship_plugin_sdk::Plugin::is_active(instance))
+            starship_plugin_sdk::write_msg(&starship_plugin_sdk::Plugin::is_applicable(instance))
         }
     };
 
@@ -99,7 +99,7 @@ pub fn export_plugin(_attr: TokenStream, item: TokenStream) -> TokenStream {
         #impl_block
         #instance_storage
         #name_export
-        #is_active_export
+        #is_applicable_export
         #new_export
         #drop_export
         #call_export

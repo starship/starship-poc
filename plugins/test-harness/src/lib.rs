@@ -10,7 +10,7 @@ struct TestPlugin;
 impl Plugin for TestPlugin {
     const NAME: &str = "test";
 
-    fn is_active(&self) -> bool {
+    fn is_applicable(&self) -> bool {
         host::file_exists(".starship-test-marker")
     }
 }
@@ -49,15 +49,15 @@ mod tests {
     }
 
     #[test]
-    fn inactive_without_marker() {
+    fn inapplicable_without_marker() {
         let mut plugin = plugin_fixture!();
-        assert!(!plugin.is_active());
+        assert!(!plugin.is_applicable());
     }
 
     #[test]
-    fn active_with_marker() {
+    fn applicable_with_marker() {
         let mut plugin = plugin_fixture!();
         fs::write(plugin.dir.join(".starship-test-marker"), "").unwrap();
-        assert!(plugin.is_active());
+        assert!(plugin.is_applicable());
     }
 }

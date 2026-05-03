@@ -9,7 +9,7 @@ pub mod host;
 
 /// Required contract for all Starship plugins.
 ///
-/// Provides the plugin's identity and activation logic. The `#[export_plugin]`
+/// Provides the plugin's identity and applicability logic. The `#[export_plugin]`
 /// macro references this trait to generate WASM exports, so failing to
 /// implement it is a compile error.
 ///
@@ -18,6 +18,6 @@ pub trait Plugin: Default {
     /// Unique identifier for the plugin.
     const NAME: &str;
 
-    /// Whether the plugin should activate in the current directory.
-    fn is_active(&self) -> bool;
+    /// Whether the plugin should be queried for the current directory.
+    fn is_applicable(&self) -> bool;
 }

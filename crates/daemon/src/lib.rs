@@ -70,9 +70,9 @@ mod tests {
     }
 
     #[test]
-    fn plugin_method_returns_nil_when_inactive() {
+    fn plugin_method_returns_nil_when_inapplicable() {
         let mut plugin = starship_runtime::plugin_fixture!();
-        let result = plugin.render(r#"test.home or "inactive""#);
-        assert_eq!(result, "inactive");
+        let result = plugin.render(r#"test.home or "inapplicable""#);
+        assert_eq!(result, "inapplicable");
     }
 }

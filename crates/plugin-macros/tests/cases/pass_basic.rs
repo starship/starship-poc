@@ -6,7 +6,7 @@ struct TestPlugin;
 impl Plugin for TestPlugin {
     const NAME: &str = "test";
 
-    fn is_active(&self) -> bool {
+    fn is_applicable(&self) -> bool {
         true
     }
 }

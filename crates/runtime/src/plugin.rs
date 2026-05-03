@@ -34,7 +34,7 @@ struct GuestExports {
     alloc: TypedFunc<u32, u32>,
     dealloc: TypedFunc<u64, ()>,
     call: TypedFunc<(u32, u64), u64>,
-    is_active: Option<TypedFunc<u32, u64>>,
+    is_applicable: Option<TypedFunc<u32, u64>>,
     drop: Option<TypedFunc<u32, ()>>,
 }
 
@@ -48,7 +48,7 @@ pub struct WasmPlugin {
     exports: GuestExports,
     name: String,
     handle: u32,
-    is_active: Cell<Option<bool>>,
+    is_applicable: Cell<Option<bool>>,
 }
 
 fn caller_memory(caller: &mut Caller<'_, HostState>) -> Result<wasmtime::Memory> {
@@ -233,8 +233,8 @@ impl WasmPlugin {
             alloc: instance.get_typed_func(&mut store, "alloc")?,
             dealloc: instance.get_typed_func(&mut store, "dealloc")?,
             call: instance.get_typed_func(&mut store, "_plugin_call")?,
-            is_active: instance
-                .get_typed_func(&mut store, "_plugin_is_active")
+            is_applicable: instance
+                .get_typed_func(&mut store, "_plugin_is_applicable")
                 .ok(),
             drop: instance.get_typed_func(&mut store, "_plugin_drop").ok(),
         };
@@ -253,7 +253,7 @@ impl WasmPlugin {
             exports,
             name,
             handle,
-            is_active: Cell::new(None),
+            is_applicable: Cell::new(None),
         })
     }
 
@@ -263,24 +263,24 @@ impl WasmPlugin {
     }
 
     /// Updates the working directory for host function calls and invalidates
-    /// the cached `is_active` result. Called once per render cycle.
+    /// the cached `is_applicable` result. Called once per render cycle.
     pub fn update_context(&mut self, pwd: &Path) {
         self.store.data_mut().pwd = pwd.to_path_buf();
-        self.is_active.set(None);
+        self.is_applicable.set(None);
     }
 
     #[instrument(skip_all, fields(plugin = %self.name))]
-    pub fn is_active(&mut self) -> bool {
-        if let Some(cached) = self.is_active.get() {
+    pub fn is_applicable(&mut self) -> bool {
+        if let Some(cached) = self.is_applicable.get() {
             return cached;
         }
-        let result = self.is_active_uncached();
-        self.is_active.set(Some(result));
+        let result = self.is_applicable_uncached();
+        self.is_applicable.set(Some(result));
         result
     }
 
-    fn is_active_uncached(&mut self) -> bool {
-        let Some(func) = self.exports.is_active.clone() else {
+    fn is_applicable_uncached(&mut self) -> bool {
+        let Some(func) = self.exports.is_applicable.clone() else {
             return true;
         };
         let Ok(packed) = func.call(&mut self.store, self.handle) else {
@@ -378,7 +378,7 @@ pub fn register_plugin(lua: &Lua, plugin: Rc<RefCell<WasmPlugin>>) -> mlua::Resu
         "__index",
         lua.create_function(move |lua, (_table, key): (Table, String)| {
             let mut plugin = plugin.borrow_mut();
-            if !plugin.is_active() {
+            if !plugin.is_applicable() {
                 return Ok(mlua::Value::Nil);
             }
             let result = plugin
@@ -490,11 +490,11 @@ pub mod test_helpers {
             }
         }
 
-        /// Calls the guest's `_plugin_is_active` export. Returns `true` (fail-open)
+        /// Calls the guest's `_plugin_is_applicable` export. Returns `true` (fail-open)
         /// if the export is missing, traps, or returns malformed data.
-        pub fn is_active(&mut self) -> bool {
+        pub fn is_applicable(&mut self) -> bool {
             self.plugin.update_context(&self.dir.clone());
-            self.plugin.is_active()
+            self.plugin.is_applicable()
         }
 
         #[allow(clippy::missing_panics_doc)]
@@ -601,11 +601,11 @@ mod tests {
     }
 
     #[test]
-    fn is_active_reflects_file_exists() {
+    fn is_applicable_reflects_file_exists() {
         let mut plugin = plugin_fixture!();
-        assert!(!plugin.is_active());
+        assert!(!plugin.is_applicable());
 
         fs::write(plugin.dir.join(".starship-test-marker"), "").unwrap();
-        assert!(plugin.is_active());
+        assert!(plugin.is_applicable());
     }
 }
