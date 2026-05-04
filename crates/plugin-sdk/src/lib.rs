@@ -18,7 +18,10 @@ pub trait Plugin: Default {
     /// Unique identifier for the plugin.
     const NAME: &str;
 
-    /// Whether the plugin should be queried for the current directory.
+    /// Whether the plugin is active for the current context.
+    ///
+    /// Typically checks whether the package's relevant config files
+    /// (e.g. `package.json`, `Cargo.toml`) are present in the repo root.
     fn is_applicable(&self) -> bool;
 }
 
