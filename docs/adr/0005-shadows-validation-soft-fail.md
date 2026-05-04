@@ -1,0 +1,16 @@
+# SHADOWS validation: shared const fn enforced at compile time and daemon load, with soft load-time failures
+
+SHADOWS validation has a single source of truth: a `pub const fn validate_per_plugin(name, shadows) -> Result<(), PerPluginError>` in `plugin-core`. Two enforcement points call it. `#[export_vcs_plugin]` emits a `const _: () = …;` block that calls the function and panics on `Err`, catching per-plugin rules (self-shadow, duplicate within a single SHADOWS list) as a hard compile error pointing at the plugin's source. At daemon load time, a runtime validator iterates loaded VCS plugins, calls the same function for each, and additionally checks cross-plugin rules (cycles between SHADOWS lists, references to unknown plugin names) that require the full plugin set. Runtime failures are soft: the offending plugin is dropped from the Active VCS resolution candidate set, a warning is logged naming the plugin and the rule violated, and the plugin remains loaded and callable under its concrete name. Supersedes ADR-0003's "load-time errors" wording on the failure-mode point only — the resolution algorithm itself stands.
+
+## Consequences
+
+- The daemon never refuses to start because of a malformed `SHADOWS` declaration. A misconfigured VCS plugin keeps working under its concrete name; only its eligibility for `vcs.*` resolution is affected.
+- The per-plugin rules live in one function. Adding a new rule updates `validate_per_plugin`; both the compile-time and runtime call sites pick it up unchanged. Cross-plugin rules live only in the runtime validator since they cannot be expressed against a single plugin's data.
+- Plugin authors using the macro get fast feedback via compile failure. The runtime check is the safety net for hand-rolled WASM, plugins built against older SDK versions, and rules added after a plugin was built.
+- `PerPluginError` is a non-allocating enum: const-context cannot allocate, so the variants don't carry plugin names or indices. The compile-time panic message is therefore a static string, with the diagnostic location pointing at the plugin's source. The runtime caller wraps results with plugin name and richer details when surfacing them.
+
+## Considered Options
+
+- **Hard fail at daemon startup** when any SHADOWS rule fails. Rejected because the failures are caused by declarations the end user didn't author — refusing to render any prompt because of an upstream plugin's SHADOWS bug is a worse outcome than degrading to non-Active-VCS behaviour with a visible warning.
+- **Runtime-only enforcement** (no compile-time check). Rejected because the per-plugin rules are trivially expressible as a `const fn` and the SDK is the natural moment to catch self-evident plugin bugs. Sharing the same `const fn` between the macro and the runtime validator avoids the duplication that would otherwise justify this option.
+- **Macro-only validation by AST inspection** (parse the `impl VcsPlugin for X` block at proc-macro time). Rejected because it couples `#[export_vcs_plugin]` to the AST shape of a separate impl block, breaks for non-literal definitions of `NAME` and `SHADOWS`, and produces no shareable artifact for the runtime validator. Const-eval delivers the same compile-time effect with cleaner separation.
