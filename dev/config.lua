@@ -1,1 +1,1 @@
-return { format = compact(green("node:", nodejs.version), ctx.pwd, "❯") }
+return compact(green("node:", nodejs.version), ctx.pwd, "❯")

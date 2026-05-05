@@ -12,21 +12,21 @@ mod config;
 const MINIMAL_CONFIG: BenchConfig = BenchConfig {
     name: "Minimal",
     source: r#"
-        return { format = "$ " }
+        return "$ "
     "#,
 };
 
 const WITH_MODULES_CONFIG: BenchConfig = BenchConfig {
     name: "With Modules",
     source: r#"
-        return { format = ctx.pwd .. " " .. ctx.user .. " $ " }
+        return ctx.pwd .. " " .. ctx.user .. " $ "
     "#,
 };
 
 const COMPACT_CONFIG: BenchConfig = BenchConfig {
     name: "Compact",
     source: r#"
-        return { format = compact(green("node:", nil), ctx.pwd, "❯") }
+        return compact(green("node:", nil), ctx.pwd, "❯")
     "#,
 };
 

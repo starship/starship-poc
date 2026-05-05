@@ -27,14 +27,12 @@ This repo is meant to serve as a proof of concept for a new architecture for Sta
 
 ## Example config
 ```lua
-rootUsername = user.name == "root" and "root" or nil
+-- Conditionally show "root" when running as root
+rootUsername = ctx.user == "root" and red("root") or nil
 
--- git.branch calls the git plugin for the branch value
--- compact trims values that are nil
-format = compact({ rootUsername, pwd, git.branch, "❯" })
-
--- the returned string is the output
-return table.concat(format, " ")
+-- git.branch calls the git plugin lazily; nil outside a repo.
+-- compact() drops nils and joins what's left with a space.
+return compact(rootUsername, ctx.pwd, git.branch, "❯")
 ```
 
 ## Contributing

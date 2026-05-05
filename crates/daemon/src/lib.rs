@@ -46,7 +46,7 @@ mod tests {
         let dir = tempfile::tempdir().expect("tempdir");
         let pwd = dir.path().to_str().expect("tempdir path utf8");
         let mut loader =
-            ConfigLoader::from_source(r#"return { format = green(ctx.pwd .. " $ ") }"#).unwrap();
+            ConfigLoader::from_source(r#"return green(ctx.pwd .. " $ ")"#).unwrap();
         let ctx = ShellContext {
             pwd: Some(dir.path().to_path_buf()),
             user: Some("test".into()),

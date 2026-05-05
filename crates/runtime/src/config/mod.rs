@@ -20,18 +20,13 @@ pub struct Config {
     pub format: StyledContent,
 }
 
-/// Convert the Lua computed values into a Config struct.
+/// Convert the Lua return value into a Config struct.
+///
+/// Accepts any value convertible to `LuaStyledContent` directly — strings,
+/// styled values, compact results, or arrays. No table wrapper required.
 impl FromLua for Config {
-    fn from_lua(value: mlua::Value, _lua: &Lua) -> mlua::Result<Self> {
-        let table = value
-            .as_table()
-            .ok_or_else(|| mlua::Error::FromLuaConversionError {
-                from: value.type_name(),
-                to: "Config".to_string(),
-                message: Some("expected table".to_string()),
-            })?;
-
-        let format: LuaStyledContent = table.get("format")?;
+    fn from_lua(value: mlua::Value, lua: &Lua) -> mlua::Result<Self> {
+        let format = LuaStyledContent::from_lua(value, lua)?;
 
         Ok(Self {
             format: format.into(),
@@ -320,7 +315,7 @@ mod tests {
     #[test]
     fn config_interpolates_context_values() {
         assert_eq!(
-            render(r#"return { format = ctx.pwd .. " " .. ctx.user .. " $ " }"#),
+            render(r#"return ctx.pwd .. " " .. ctx.user .. " $ ""#),
             "/tmp/test testuser $ ",
         );
     }
@@ -328,24 +323,21 @@ mod tests {
     #[test]
     fn color_fns_wrap_text_in_styled_node() {
         assert_eq!(
-            render(r#"return { format = green("hello") }"#),
+            render(r#"return green("hello")"#),
             paint("hello", style().green()),
         );
     }
 
     #[test]
     fn icon_fn_resolves_to_glyph() {
-        let output = render(r#"return { format = icon("cod-git_commit") }"#);
+        let output = render(r#"return icon("cod-git_commit")"#);
         assert!(!output.is_empty(), "icon should resolve to a glyph");
     }
 
     #[test]
     fn none_context_fields_are_nil_in_lua() -> Result<()> {
         assert_eq!(
-            try_render(
-                r#"return { format = ctx.pwd and "truthy" or "nil" }"#,
-                &ctx(None, None),
-            )?,
+            try_render(r#"return ctx.pwd and "truthy" or "nil""#, &ctx(None, None),)?,
             "nil",
         );
         Ok(())
@@ -361,7 +353,7 @@ mod tests {
             r#"loadfile("nope.lua")"#,
             r#"dofile("nope.lua")"#,
         ] {
-            let source = format!(r#"{expr}; return {{ format = "x" }}"#);
+            let source = format!(r#"{expr}; return "x""#);
             assert!(
                 try_render(&source, c).is_err(),
                 "{expr} should be blocked by sandbox"
@@ -377,11 +369,11 @@ mod tests {
         let path = dir.path().join("config.lua");
         let c = &ctx(None, None);
 
-        std::fs::write(&path, r#"return { format = "one" }"#)?;
+        std::fs::write(&path, r#"return "one""#)?;
         let mut loader = ConfigLoader::from_path(&path)?;
         assert_eq!(render_reloadable(&mut loader, c)?, "one");
 
-        std::fs::write(&path, r#"return { format = "two" }"#)?;
+        std::fs::write(&path, r#"return "two""#)?;
         set_file_mtime(&path, FileTime::from_unix_time(i64::MAX / 2, 0))?;
         assert_eq!(render_reloadable(&mut loader, c)?, "two");
 
@@ -390,16 +382,13 @@ mod tests {
 
     #[test]
     fn style_fn_returns_nil_when_arg_is_nil() {
-        assert_eq!(
-            render(r#"return { format = green(nil) or "was_nil" }"#),
-            "was_nil",
-        );
+        assert_eq!(render(r#"return green(nil) or "was_nil""#), "was_nil",);
     }
 
     #[test]
     fn compact_filters_nils_and_joins_with_space() {
         assert_eq!(
-            render(r#"return { format = compact("a", nil, "b", nil, "c") }"#),
+            render(r#"return compact("a", nil, "b", nil, "c")"#),
             "a b c",
         );
     }
@@ -407,7 +396,7 @@ mod tests {
     #[test]
     fn compact_with_styled_and_nil() {
         assert_eq!(
-            render(r#"return { format = compact(green("node:", nil), "dir", "❯") }"#),
+            render(r#"return compact(green("node:", nil), "dir", "❯")"#),
             "dir ❯",
         );
     }
@@ -415,40 +404,37 @@ mod tests {
     #[test]
     fn compact_with_active_styled_segment() {
         assert_eq!(
-            render(r#"return { format = compact(green("node:v20"), "dir", "❯") }"#),
+            render(r#"return compact(green("node:v20"), "dir", "❯")"#),
             format!("{} dir ❯", paint("node:v20", style().green())),
         );
     }
 
     #[test]
     fn compact_all_nil_returns_empty() {
-        assert_eq!(render(r"return { format = compact(nil, nil) }"), "");
+        assert_eq!(render(r"return compact(nil, nil)"), "");
     }
 
     #[test]
     fn compact_single_element_returns_unwrapped() {
-        assert_eq!(render(r#"return { format = compact("only") }"#), "only");
+        assert_eq!(render(r#"return compact("only")"#), "only");
     }
 
     #[test]
     fn undefined_global_field_returns_nil() {
-        assert_eq!(
-            render(r#"return { format = nodejs.version or "missing" }"#),
-            "missing",
-        );
+        assert_eq!(render(r#"return nodejs.version or "missing""#), "missing",);
     }
 
     #[test]
     fn undefined_global_in_compact_is_filtered() {
         assert_eq!(
-            render(r#"return { format = compact(green("node:", nodejs.version), "dir", "❯") }"#),
+            render(r#"return compact(green("node:", nodejs.version), "dir", "❯")"#),
             "dir ❯",
         );
     }
 
     #[test]
     fn stdlib_globals_resolve_through_env() {
-        assert_eq!(render(r"return { format = tostring(math.max(1, 2)) }"), "2",);
+        assert_eq!(render(r"return tostring(math.max(1, 2))"), "2",);
     }
 
     #[test]

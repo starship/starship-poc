@@ -167,10 +167,14 @@ impl FromLua for LuaStyledContent {
     fn from_lua(value: Value, _lua: &Lua) -> LuaResult<Self> {
         match value {
             Value::String(s) => Ok(Self(vec![Span::plain(s.to_str()?.to_string())])),
-            Value::UserData(ud) => {
-                let content = ud.borrow::<Self>()?;
-                Ok(Self(content.0.clone()))
-            }
+            Value::UserData(ref ud) => ud
+                .borrow::<Self>()
+                .map(|content| Self(content.0.clone()))
+                .map_err(|_| mlua::Error::FromLuaConversionError {
+                    from: value.type_name(),
+                    to: "styled value".into(),
+                    message: Some("expected a string, styled value, or compact result".into()),
+                }),
             Value::Table(table) => {
                 let mut spans = Vec::new();
                 for value in table.sequence_values::<Self>() {
@@ -180,8 +184,8 @@ impl FromLua for LuaStyledContent {
             }
             _ => Err(mlua::Error::FromLuaConversionError {
                 from: value.type_name(),
-                to: "StyledContent".to_string(),
-                message: Some("expected string, StyledContent, or array".to_string()),
+                to: "styled value".into(),
+                message: Some("expected a string, styled value, or compact result".into()),
             }),
         }
     }

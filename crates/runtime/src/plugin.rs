@@ -578,7 +578,7 @@ pub mod test_helpers {
             use starship_common::ShellContext;
 
             self.plugin.update_context(&self.dir.clone());
-            let lua_src = format!(r"return {{ format = {lua_expr} }}");
+            let lua_src = format!(r"return {lua_expr}");
             let mut loader =
                 ConfigLoader::from_source_with_plugins(&lua_src, vec![self.plugin_for_loader()])
                     .expect("loader should build");
