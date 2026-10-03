@@ -44,7 +44,6 @@ pub struct ExecCache {
 
 impl ExecCache {
     /// Load cache from disk, or create empty if the file is missing or corrupt.
-    #[must_use]
     pub fn load(cache_path: PathBuf) -> Self {
         let entries = DashMap::new();
         if let Some(pairs) = fs::read_to_string(&cache_path)
@@ -137,7 +136,7 @@ fn key_for_path(binary_path: &Path, args: &[String]) -> Option<ExecCacheKey> {
     };
     let mtime = metadata.modified().ok()?;
     let duration = mtime.duration_since(UNIX_EPOCH).ok()?;
-    #[allow(clippy::cast_possible_truncation)]
+    #[expect(clippy::cast_possible_truncation, reason = "u64 nanos last until 2554")]
     Some(ExecCacheKey {
         binary_path: binary_path.to_path_buf(),
         binary_size: metadata.len(),

@@ -21,9 +21,9 @@ pub fn listen() -> Result<UnixListener> {
     let _ = fs::remove_file(&socket_path);
 
     let listener = UnixListener::bind(&socket_path)
-        .with_context(|| format!("failed to bind to socket: {}", &socket_path.display()))?;
+        .with_context(|| format!("failed to bind to socket: {}", socket_path.display()))?;
 
-    tracing::info!("Listening on {}", &socket_path.display());
+    tracing::info!("Listening on {}", socket_path.display());
     Ok(listener)
 }
 
@@ -32,8 +32,8 @@ pub fn listen() -> Result<UnixListener> {
 pub fn connect() -> Result<UnixStream> {
     let socket_path = get_socket_path()?;
     let stream = UnixStream::connect(&socket_path)
-        .with_context(|| format!("failed to connect to socket: {}", &socket_path.display()))?;
+        .with_context(|| format!("failed to connect to socket: {}", socket_path.display()))?;
 
-    tracing::info!("Connected to socket: {}", &socket_path.display());
+    tracing::info!("Connected to socket: {}", socket_path.display());
     Ok(stream)
 }

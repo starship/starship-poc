@@ -1,22 +1,23 @@
 [package]
 name = "starship-bench"
 version = "0.0.0"
-edition = "2024"
+edition.workspace = true
+rust-version.workspace = true
 publish = false
 
-[lints]
-workspace = true
-
 [dev-dependencies]
-anyhow = { workspace = true }
+anyhow.workspace = true
 divan = { version = "4", package = "codspeed-divan-compat" }
-starship = { workspace = true }
-starship-common = { workspace = true }
-starship-daemon = { workspace = true }
+starship.workspace = true
+starship-common.workspace = true
+starship-daemon.workspace = true
 starship-runtime = { workspace = true, features = ["testing"] }
-tempfile = "3.27.0"
-wasmtime = { version = "43.0.0", features = ["cache"] }
+tempfile.workspace = true
+wasmtime.workspace = true
 
 [[bench]]
 name = "starship_bench"
 harness = false
+
+[lints]
+workspace = true

@@ -1,6 +1,6 @@
 use anyhow::Result;
 use clap::Parser;
-use starship_common::{init_tracing, socket, ShellContext};
+use starship_common::{ShellContext, init_tracing, socket};
 use starship_runtime::{Config, ConfigLoader};
 use std::process::Command;
 use std::thread;

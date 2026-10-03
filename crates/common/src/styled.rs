@@ -12,7 +12,6 @@ pub struct Span {
 }
 
 impl Span {
-    #[must_use]
     pub fn plain(text: String) -> Self {
         Self {
             text,
@@ -45,7 +44,10 @@ impl fmt::Display for StyledContent {
 }
 
 /// Serde-friendly style for the daemon-client wire format.
-#[allow(clippy::struct_excessive_bools)]
+#[expect(
+    clippy::struct_excessive_bools,
+    reason = "independent terminal attributes"
+)]
 #[derive(Debug, Serialize, Deserialize, Default, Clone, PartialEq, Eq)]
 pub struct Style {
     pub fg: Option<Color>,
@@ -58,7 +60,6 @@ pub struct Style {
 }
 
 impl Style {
-    #[must_use]
     pub fn is_plain(&self) -> bool {
         *self == Self::default()
     }
@@ -77,7 +78,6 @@ impl Style {
         self
     }
 
-    #[must_use]
     pub fn to_owo(&self) -> owo_colors::Style {
         let mut owo = owo_colors::Style::new();
         if let Some(fg) = self.fg {

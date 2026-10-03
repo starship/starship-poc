@@ -1,11 +1,11 @@
 use crate::config::nerd_font::register_icon_function;
-use crate::config::style::{register_compact_function, register_style_functions, LuaStyledContent};
+use crate::config::style::{LuaStyledContent, register_compact_function, register_style_functions};
 use crate::exec_cache::ExecCache;
-use crate::plugin::{create_engine, load_plugins, register_plugin, WasmPlugin};
+use crate::plugin::{WasmPlugin, create_engine, load_plugins, register_plugin};
 use anyhow::Result;
 use mlua::{FromLua, Lua, LuaOptions, LuaSerdeExt, SerializeOptions, StdLib};
 use serde::{Deserialize, Serialize};
-use starship_common::{get_cache_dir, get_config_dir, styled::StyledContent, ShellContext};
+use starship_common::{ShellContext, get_cache_dir, get_config_dir, styled::StyledContent};
 use std::cell::RefCell;
 use std::rc::Rc;
 use std::sync::Arc;
@@ -363,7 +363,7 @@ mod tests {
 
     #[test]
     fn file_backed_config_recompiles_on_change() -> Result<()> {
-        use filetime::{set_file_mtime, FileTime};
+        use filetime::{FileTime, set_file_mtime};
 
         let dir = tempfile::tempdir()?;
         let path = dir.path().join("config.lua");

@@ -49,7 +49,7 @@ pub struct PluginOutput {
     pub text: String,
 }
 
-/// Metadata about a plugin, returned by Plugin::metadata().
+/// Metadata about a plugin, returned by `Plugin::metadata()`.
 /// Used by the daemon for logging and plugin management.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PluginMetadata {

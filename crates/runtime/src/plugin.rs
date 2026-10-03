@@ -3,7 +3,7 @@ use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use std::sync::Arc;
 
-use anyhow::{anyhow, Result};
+use anyhow::{Result, anyhow};
 use mlua::{Lua, LuaSerdeExt, Table};
 use serde_json::Value;
 use starship_plugin_core::{from_bitwise, into_bitwise};
@@ -88,7 +88,7 @@ fn read_guest_bytes(caller: &mut Caller<'_, HostState>, packed: u64) -> Result<V
 }
 
 fn write_guest_bytes(caller: &mut Caller<'_, HostState>, bytes: &[u8]) -> Result<u64> {
-    #[allow(clippy::cast_possible_truncation)]
+    #[expect(clippy::cast_possible_truncation, reason = "wasm32 lengths are 32-bit")]
     let len = bytes.len() as u32;
     let ptr = caller_alloc(caller, len)?;
     let memory = caller_memory(caller)?;
@@ -265,7 +265,6 @@ impl WasmPlugin {
         })
     }
 
-    #[must_use]
     pub fn name(&self) -> &str {
         &self.name
     }
@@ -390,7 +389,7 @@ impl WasmPlugin {
     }
 
     fn write_guest_bytes(&mut self, bytes: &[u8]) -> Result<u64> {
-        #[allow(clippy::cast_possible_truncation)]
+        #[expect(clippy::cast_possible_truncation, reason = "wasm32 lengths are 32-bit")]
         let len = bytes.len() as u32;
         let ptr = self.exports.alloc.call(&mut self.store, len)?;
         self.exports
@@ -450,7 +449,6 @@ pub fn register_plugin(lua: &Lua, plugin: Rc<RefCell<WasmPlugin>>) -> mlua::Resu
 ///
 /// Returns an empty vec if the directory doesn't exist. Logs and skips
 /// individual plugins that fail to load.
-#[must_use]
 #[instrument(skip(engine, pwd, exec_cache))]
 pub fn load_plugins(
     engine: &Engine,
@@ -493,7 +491,7 @@ pub mod test_helpers {
 
     use wasmtime::Module;
 
-    use super::{create_engine, WasmPlugin};
+    use super::{WasmPlugin, create_engine};
     use crate::exec_cache::ExecCache;
 
     pub const TEST_HARNESS_WASM: &[u8] = include_bytes!(concat!(
@@ -519,8 +517,6 @@ pub mod test_helpers {
     }
 
     impl PluginFixture {
-        #[must_use]
-        #[allow(clippy::missing_panics_doc)]
         pub fn from_wasm(bytes: &[u8]) -> Self {
             let dir = tempfile::TempDir::new().expect("tempdir");
             let path = dir.path().to_path_buf();
@@ -567,12 +563,10 @@ pub mod test_helpers {
             self.plugin.detect_depth()
         }
 
-        #[must_use]
         pub fn name(&self) -> &str {
             self.plugin.name()
         }
 
-        #[allow(clippy::missing_panics_doc)]
         pub fn render(&mut self, lua_expr: &str) -> String {
             use crate::config::{Config, ConfigLoader};
             use starship_common::ShellContext;
@@ -702,7 +696,7 @@ mod tests {
     #[test]
     fn export_plugin_emits_empty_shadows() {
         let mut plugin = plugin_fixture!();
-        assert!(plugin.shadows().is_empty());
+        assert_eq!(plugin.shadows(), Vec::<String>::new());
     }
 
     #[test]

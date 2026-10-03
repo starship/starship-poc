@@ -1,7 +1,8 @@
 [package]
 name = "starship-plugin-macros"
 version = "0.1.0"
-edition = "2024"
+edition.workspace = true
+rust-version.workspace = true
 
 [lib]
 proc-macro = true
@@ -12,5 +13,8 @@ quote = "1.0"
 syn = { version = "2.0", features = ["full"] }
 
 [dev-dependencies]
-starship-plugin-sdk = { path = "../plugin-sdk" }
+starship-plugin-sdk.workspace = true
 trybuild = "1.0.116"
+
+[lints]
+workspace = true

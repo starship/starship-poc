@@ -2,15 +2,16 @@
 name = "starship"
 description = "The CLI for the Starship prompt"
 version = "0.1.0"
-edition = "2024"
+edition.workspace = true
+rust-version.workspace = true
 
 [dependencies]
-anyhow = { workspace = true }
+anyhow.workspace = true
 clap = { version = "4", features = ["derive"] }
-tracing = { workspace = true }
-starship-common = { workspace = true }
-starship-runtime = { workspace = true }
-serde_json = "1.0"
+serde_json.workspace = true
+starship-common.workspace = true
+starship-runtime.workspace = true
+tracing.workspace = true
 
 [lints]
 workspace = true

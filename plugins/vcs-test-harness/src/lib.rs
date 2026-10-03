@@ -1,4 +1,4 @@
-use starship_plugin_sdk::{export_vcs_plugin, host, VcsPlugin};
+use starship_plugin_sdk::{VcsPlugin, export_vcs_plugin, host};
 
 /// Stub VCS plugin used by runtime tests to exercise the `#[export_vcs_plugin]`
 /// ABI surface without depending on a real VCS like git.
@@ -32,7 +32,7 @@ impl VcsPlugin for VcsTestPlugin {
 
 #[export_vcs_plugin]
 impl VcsTestPlugin {
-    pub fn change_id(&self) -> Option<String> {
-        Some("stub-change-id".to_string())
+    pub fn change_id(&self) -> String {
+        "stub-change-id".to_string()
     }
 }

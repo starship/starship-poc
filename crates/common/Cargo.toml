@@ -2,16 +2,17 @@
 name = "starship-common"
 description = "Common code for the Starship prompt"
 version = "0.1.0"
-edition = "2024"
+edition.workspace = true
+rust-version.workspace = true
 
 [dependencies]
-anyhow = { workspace = true }
+anyhow.workspace = true
 directories = "6.0"
-serde = { version = "1.0", features = ["derive"] }
-tracing = { workspace = true }
-tracing-subscriber = { workspace = true }
-tracing-profile = { workspace = true }
-owo-colors = { workspace = true }
+owo-colors.workspace = true
+serde.workspace = true
+tracing.workspace = true
+tracing-profile.workspace = true
+tracing-subscriber.workspace = true
 
 [lints]
 workspace = true

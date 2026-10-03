@@ -4,6 +4,7 @@
 use crate::{read_msg, write_msg};
 
 #[cfg(target_arch = "wasm32")]
+#[link(wasm_import_module = "env")]
 unsafe extern "C" {
     fn _plugin_host_get_env(packed: u64) -> u64;
     fn _plugin_host_exec(packed: u64) -> u64;

@@ -8,13 +8,13 @@
 ///
 /// WASM32 uses 32-bit pointers, so this is safe - we're not losing precision.
 /// The pointer goes in the lower 32 bits, length in the upper 32 bits.
-#[inline(always)]
+#[inline]
 pub const fn into_bitwise(ptr: u32, len: u32) -> u64 {
     (ptr as u64) | ((len as u64) << 32)
 }
 
 /// Unpack a u64 back into (pointer, length).
-#[inline(always)]
+#[inline]
 pub const fn from_bitwise(value: u64) -> (u32, u32) {
     let ptr = (value & 0xFFFF_FFFF) as u32; // Lower 32 bits
     let len = (value >> 32) as u32; // Upper 32 bits

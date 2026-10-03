@@ -35,7 +35,7 @@ pub fn register_compact_function(lua: &Lua) -> Result<()> {
                     _ => {
                         return Err(mlua::Error::RuntimeError(
                             "compact: expected string, StyledContent, or nil".to_string(),
-                        ))
+                        ));
                     }
                 }
             }
@@ -67,7 +67,7 @@ pub fn register_style_functions(lua: &Lua) -> Result<()> {
             .set(format!("bg_{name}"), create_color_fn(lua, color, true)?)?;
     }
 
-    #[allow(clippy::type_complexity)]
+    #[expect(clippy::type_complexity, reason = "table of name and setter pairs")]
     let effects: [(&str, fn(&mut Style)); 5] = [
         ("bold", |s| s.bold = true),
         ("italic", |s| s.italic = true),
@@ -137,7 +137,7 @@ fn collect_children(args: MultiValue) -> LuaResult<Option<Vec<Span>>> {
             _ => {
                 return Err(mlua::Error::RuntimeError(
                     "expected string, StyledContent, or nil".to_string(),
-                ))
+                ));
             }
         }
     }

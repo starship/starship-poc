@@ -4,6 +4,8 @@
 //! host (daemon) to allocate/deallocate memory in the guest's address space,
 //! and let plugins serialize/deserialize data across the WASM boundary.
 
+use std::ptr;
+
 use crate::bitwise::{from_bitwise, into_bitwise};
 use serde::{Deserialize, Serialize};
 
@@ -20,7 +22,7 @@ use serde::{Deserialize, Serialize};
 #[unsafe(no_mangle)]
 pub extern "C" fn alloc(len: u32) -> *mut u8 {
     let boxed: Box<[u8]> = vec![0u8; len as usize].into_boxed_slice();
-    Box::into_raw(boxed) as *mut u8
+    Box::into_raw(boxed).cast::<u8>()
 }
 
 /// Deallocate memory previously allocated by `alloc` or `write_msg`.
@@ -28,14 +30,13 @@ pub extern "C" fn alloc(len: u32) -> *mut u8 {
 /// Takes a packed (ptr, len) as u64. Reconstructs the boxed slice and drops it.
 ///
 /// # Safety
+///
 /// The packed value must have come from a previous allocation in this module.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn dealloc(packed: u64) {
     let (ptr, len) = from_bitwise(packed);
-    unsafe {
-        let slice = std::slice::from_raw_parts_mut(ptr as *mut u8, len as usize);
-        let _ = Box::from_raw(slice as *mut [u8]);
-    }
+    let slice = ptr::slice_from_raw_parts_mut(ptr as *mut u8, len as usize);
+    drop(unsafe { Box::from_raw(slice) });
 }
 
 /// Serialize a value and return a packed (ptr, len).
@@ -44,12 +45,16 @@ pub unsafe extern "C" fn dealloc(packed: u64) {
 /// The plugin serializes its return value, and the host reads it from memory.
 ///
 /// Converts to a boxed slice to guarantee capacity == len before leaking.
+#[expect(
+    clippy::cast_possible_truncation,
+    reason = "wasm32 pointers are 32-bit"
+)]
 pub fn write_msg<T: Serialize>(value: &T) -> u64 {
     let boxed: Box<[u8]> = serde_json::to_vec(value)
         .expect("serialization failed")
         .into_boxed_slice();
     let len = boxed.len();
-    let ptr = Box::into_raw(boxed) as *mut u8;
+    let ptr = Box::into_raw(boxed).cast::<u8>();
     into_bitwise(ptr as u32, len as u32)
 }
 
@@ -58,12 +63,11 @@ pub fn write_msg<T: Serialize>(value: &T) -> u64 {
 /// Used by plugins to read input data from the host.
 ///
 /// # Safety
+///
 /// The packed value must point to valid JSON data previously written to guest memory.
 pub unsafe fn read_msg<T: for<'de> Deserialize<'de>>(packed: u64) -> T {
     let (ptr, len) = from_bitwise(packed);
-    let boxed = unsafe {
-        let slice = std::slice::from_raw_parts_mut(ptr as *mut u8, len as usize);
-        Box::from_raw(slice as *mut [u8])
-    };
+    let slice = ptr::slice_from_raw_parts_mut(ptr as *mut u8, len as usize);
+    let boxed = unsafe { Box::from_raw(slice) };
     serde_json::from_slice(&boxed).expect("deserialization failed")
 }

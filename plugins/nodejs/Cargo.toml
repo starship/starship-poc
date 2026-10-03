@@ -1,12 +1,16 @@
 [package]
 name = "starship-plugin-nodejs"
 version = "0.1.0"
-edition = "2024"
+edition.workspace = true
+rust-version.workspace = true
 
 [lib]
 crate-type = ["cdylib"]
 
 [dependencies]
-starship-plugin-sdk = { path = "../../crates/plugin-sdk" }
-serde = { workspace = true }
-serde_json = { workspace = true }
+serde.workspace = true
+serde_json.workspace = true
+starship-plugin-sdk.workspace = true
+
+[lints]
+workspace = true

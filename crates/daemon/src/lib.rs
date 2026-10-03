@@ -45,8 +45,7 @@ mod tests {
     fn client_receives_styled_prompt_over_socket() {
         let dir = tempfile::tempdir().expect("tempdir");
         let pwd = dir.path().to_str().expect("tempdir path utf8");
-        let mut loader =
-            ConfigLoader::from_source(r#"return green(ctx.pwd .. " $ ")"#).unwrap();
+        let mut loader = ConfigLoader::from_source(r#"return green(ctx.pwd .. " $ ")"#).unwrap();
         let ctx = ShellContext {
             pwd: Some(dir.path().to_path_buf()),
             user: Some("test".into()),
@@ -65,7 +64,7 @@ mod tests {
         let mut plugin = starship_runtime::plugin_fixture!();
         std::fs::write(plugin.dir.join(".starship-test-marker"), "").unwrap();
         let result = plugin.render(r#"test.home or "none""#);
-        assert!(!result.is_empty());
+        assert_ne!(result, "");
         assert_ne!(result, "none");
     }
 

@@ -1,5 +1,5 @@
 use anyhow::{Context, Result};
-use starship_common::{styled::StyledContent, ShellContext};
+use starship_common::{ShellContext, styled::StyledContent};
 use std::io::{BufRead, BufReader, Read, Write};
 
 #[tracing::instrument(skip_all)]

@@ -1,4 +1,4 @@
-use starship_plugin_sdk::{export_plugin, host, Plugin};
+use starship_plugin_sdk::{Plugin, export_plugin, host};
 
 /// Test plugin that exercises all host APIs.
 ///

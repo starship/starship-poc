@@ -1,7 +1,7 @@
 use proc_macro::TokenStream;
 use proc_macro2::Ident;
 use quote::quote;
-use syn::{parse_macro_input, ImplItem, ItemImpl, Type};
+use syn::{ImplItem, ItemImpl, Type, parse_macro_input};
 
 fn parse_impl_block(impl_block: &ItemImpl) -> (Ident, Vec<Ident>) {
     let struct_type = match &*impl_block.self_ty {
@@ -25,13 +25,22 @@ fn parse_impl_block(impl_block: &ItemImpl) -> (Ident, Vec<Ident>) {
     (struct_type, pub_methods)
 }
 
+/// Exported methods must take `&self` so the generated dispatcher can call
+/// them, even when the plugin is stateless.
+fn allow_unused_self(impl_block: &mut ItemImpl) {
+    impl_block
+        .attrs
+        .push(syn::parse_quote!(#[allow(clippy::unused_self)]));
+}
+
 /// Exports a plugin impl block for WASM.
 ///
 /// The struct must implement `starship_plugin_sdk::Plugin`.
 /// Public methods in this impl block become callable via `_plugin_call`.
 #[proc_macro_attribute]
 pub fn export_plugin(_attr: TokenStream, item: TokenStream) -> TokenStream {
-    let impl_block = parse_macro_input!(item as ItemImpl);
+    let mut impl_block = parse_macro_input!(item as ItemImpl);
+    allow_unused_self(&mut impl_block);
     let (struct_type, pub_methods) = parse_impl_block(&impl_block);
 
     let match_arms = pub_methods.iter().map(|method| {
@@ -137,7 +146,8 @@ pub fn export_plugin(_attr: TokenStream, item: TokenStream) -> TokenStream {
 /// inherent impl block (e.g. `jj.change_id`).
 #[proc_macro_attribute]
 pub fn export_vcs_plugin(_attr: TokenStream, item: TokenStream) -> TokenStream {
-    let impl_block = parse_macro_input!(item as ItemImpl);
+    let mut impl_block = parse_macro_input!(item as ItemImpl);
+    allow_unused_self(&mut impl_block);
     let (struct_type, pub_methods) = parse_impl_block(&impl_block);
 
     let inherent_arms = pub_methods.iter().map(|method| {

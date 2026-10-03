@@ -1,5 +1,5 @@
 use config::BenchConfig;
-use divan::{black_box, Bencher};
+use divan::{Bencher, black_box};
 use starship_common::ShellContext;
 use starship_daemon::handle_client;
 use starship_runtime::plugin::test_helpers::{PluginFixture, TEST_HARNESS_WASM};

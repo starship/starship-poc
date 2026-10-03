@@ -1,13 +1,17 @@
 [package]
 name = "starship-plugin-test-harness"
 version = "0.1.0"
-edition = "2024"
+edition.workspace = true
+rust-version.workspace = true
 
 [lib]
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
-starship-plugin-sdk = { path = "../../crates/plugin-sdk" }
+starship-plugin-sdk.workspace = true
 
 [dev-dependencies]
-starship-runtime = { path = "../../crates/runtime", features = ["testing"] }
+starship-runtime = { workspace = true, features = ["testing"] }
+
+[lints]
+workspace = true
