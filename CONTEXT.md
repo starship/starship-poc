@@ -1,11 +1,16 @@
 # Starship POC
 
-Rust rewrite of Starship structured around WASM plugins loaded at runtime. The daemon evaluates a Lua config that consumes plugin-exported data to render the prompt.
+Rust rewrite of Starship structured around plugins that run as separate processes. The daemon evaluates a Lua config that consumes plugin-exported data to render the prompt.
 
 ## Language
 
 **Plugin**:
-A WASM module that exposes data to the prompt config (e.g. `nodejs.version`). Has a unique `NAME`, an `is_applicable()` gate, and a set of exported methods.
+A separately built executable that speaks the plugin protocol and exposes data to the prompt config (e.g. `nodejs.version`). Has a unique `NAME`, an `is_applicable()` gate, and a set of exported methods.
+_Avoid_: module (Starship's word for a configured prompt segment), extension, provider
+
+**Render context**:
+The snapshot of the shell's state for one render (pwd and environment) that accompanies every request to a plugin. Plugins read pwd and environment from it, never from their own process.
+_Avoid_: shell context
 
 **VCS plugin**:
 A plugin that implements a version control system backend. Implements the `VcsPlugin` trait — a separate, parallel trait to `Plugin` (not a sub-trait). VCS plugins don't carry a generic `is_applicable()` gate; their gate is `detect_depth().is_some()`, derived by the SDK when it answers the host's `IsApplicable` request. The MVP targets git, jj, hg, pijul, and fossil.
@@ -25,7 +30,7 @@ When no Active VCS is present (no sentinel found anywhere up to filesystem root)
 **VCS detection** vs **root resolution**:
 Two distinct steps. _Detection_ — answering "which VCS, if any, applies here?" — uses cheap upward sentinel walks (`.git`, `.jj`, `.hg`, `_FOSSIL_`, `.pijul`) terminating at filesystem root. _Root resolution_ — answering "what's the project root path?" — shells out to the VCS CLI for the canonical answer. The principle "VCS determines the project root" applies to root resolution, not to detection.
 
-Root resolution caching is the VCS plugin's responsibility, not the framework's. The exec cache (`host::exec`) deliberately doesn't key on `pwd`, so VCS plugins use `host::exec_uncached` for pwd-dependent calls and decide for themselves whether to cache results across renders. The daemon only deduplicates within a single render.
+Root resolution caching is the VCS plugin's responsibility, not the framework's. The exec cache (`exec`) keys on the binary, not on `pwd`, so VCS plugins use `exec_uncached` for pwd-dependent calls and decide for themselves whether to cache results across renders. The daemon only deduplicates within a single render.
 
 **SHADOWS validator**:
 The check that vets each VCS plugin's `SHADOWS` declaration — the per-plugin list of other VCS plugins it supersedes when colocated, e.g. `&["git"]` on jj. The single source of truth is `pub const fn validate_per_plugin` in `plugin-core`, called from two places: `#[export_vcs_plugin]` invokes it inside a `const _: () = ...;` block so per-plugin rules (self-shadow, duplicates within a list) fail at plugin compile time; the runtime validator invokes it once per plugin at discovery and additionally runs cross-plugin rules (cycles, unknown shadow targets). Runtime failures are soft (per ADR-0005): the offending plugin is dropped from the Active VCS resolution candidate set with a logged warning, and remains loaded and callable under its concrete name.
@@ -33,7 +38,7 @@ _Avoid_: SHADOWS checker, SHADOWS linter (the runtime names this `validator`).
 
 ## Relationships
 
-- A **VCS plugin** is a WASM plugin kind with a parallel trait (`VcsPlugin`, alongside `Plugin` rather than a sub-trait — see ADR-0001). It remains addressable under its concrete name (`git.branch`, `jj.change_id`).
+- A **VCS plugin** is a kind of **Plugin** with a parallel trait (`VcsPlugin`, alongside `Plugin` rather than a sub-trait — see ADR-0001). It remains addressable under its concrete name (`git.branch`, `jj.change_id`).
 - The **`vcs` global** delegates to the **Active VCS** at render time.
 - The **Project root** is computed by the **Active VCS** — never inferred from the filesystem alone.
 - The **SHADOWS validator** governs which **VCS plugins** are eligible to be the **Active VCS**; a failed plugin is dropped from the candidate set but remains addressable under its concrete name.

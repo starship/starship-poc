@@ -6,7 +6,7 @@ SHADOWS validation has a single source of truth: a `pub const fn validate_per_pl
 
 - The daemon never refuses to start because of a malformed `SHADOWS` declaration. A misconfigured VCS plugin keeps working under its concrete name; only its eligibility for `vcs.*` resolution is affected.
 - The per-plugin rules live in one function. Adding a new rule updates `validate_per_plugin`; both the compile-time and runtime call sites pick it up unchanged. Cross-plugin rules live only in the runtime validator since they cannot be expressed against a single plugin's data.
-- Plugin authors using the macro get fast feedback via compile failure. The runtime check is the safety net for hand-rolled WASM, plugins built against older SDK versions, and rules added after a plugin was built.
+- Plugin authors using the macro get fast feedback via compile failure. The runtime check is the safety net for hand-rolled plugins, plugins built against older SDK versions, and rules added after a plugin was built.
 - `PerPluginError` is a non-allocating enum: const-context cannot allocate, so the variants don't carry plugin names or indices. The compile-time panic message is therefore a static string, with the diagnostic location pointing at the plugin's source. The runtime caller wraps results with plugin name and richer details when surfacing them.
 
 ## Considered Options

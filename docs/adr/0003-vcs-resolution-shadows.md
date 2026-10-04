@@ -9,4 +9,4 @@ Same-depth detections with no shadow relationship between them (rare: e.g., a di
 ## Considered Options
 
 - **Plugin-declared priority numbers** (`const PRIORITY: u32 = 100`). Rejected because plugin authors would have to coordinate around magic constants without any framework-level meaning. Adding a new VCS would require reading other plugins' priority values to find an unused slot. Brittle, and the ordering encodes nothing about *why* one VCS shadows another.
-- **Load-order tiebreaker** (first-loaded plugin wins). Rejected because `.wasm` discovery order is filesystem-dependent — the same install could resolve differently on different machines or after `mv`-ing files in the plugin directory.
+- **Load-order tiebreaker** (first-loaded plugin wins). Rejected because plugin discovery order is filesystem-dependent — the same install could resolve differently on different machines or after `mv`-ing files in the plugin directory.

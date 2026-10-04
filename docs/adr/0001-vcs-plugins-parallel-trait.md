@@ -1,6 +1,6 @@
 # VCS plugins use a parallel trait, not a sub-trait of `Plugin`
 
-`VcsPlugin` and `Plugin` are sibling traits, not parent/child. Each declares its own `NAME` const and a kind-appropriate gate (`Plugin::is_applicable` returning `bool`; `VcsPlugin::detect_depth` returning `Option<u32>`). The SDK answers the host's applicability request for VCS plugins with `detect_depth().is_some()` (originally a macro-synthesized `_plugin_is_applicable` export; see ADR-0006 for the current protocol), so the daemon's gate logic stays uniform across plugin kinds without forcing VCS plugin authors through a generic predicate that doesn't fit them naturally.
+`VcsPlugin` and `Plugin` are sibling traits, not parent/child. Each declares its own `NAME` const and a kind-appropriate gate (`Plugin::is_applicable` returning `bool`; `VcsPlugin::detect_depth` returning `Option<u32>`). The SDK answers the daemon's `IsApplicable` request for VCS plugins with `detect_depth().is_some()`, so the daemon's gate logic stays uniform across plugin kinds without forcing VCS plugin authors through a generic predicate that doesn't fit them naturally.
 
 ## Considered Options
 
