@@ -1,10 +1,10 @@
 use anyhow::{Context, Result};
-use starship_common::ShellContext;
-use starship_runtime::{Config, ConfigLoader};
+use starship_common::RenderContext;
+use starship_runtime::ConfigLoader;
 use std::io::{BufRead, BufReader, Read, Write};
 use tracing::instrument;
 
-/// Handles a client connection, loading the config and responding with the prompt.
+/// Handles a client connection, rendering the config and responding with the prompt.
 #[instrument(skip_all)]
 pub fn handle_client<S: Read + Write>(stream: S, loader: &mut ConfigLoader) -> Result<()> {
     let mut reader = BufReader::with_capacity(512, stream);
@@ -16,11 +16,9 @@ pub fn handle_client<S: Read + Write>(stream: S, loader: &mut ConfigLoader) -> R
             continue;
         }
 
-        let context: ShellContext =
+        let context: RenderContext =
             serde_json::from_str(&line).context("Failed to parse request")?;
-        let config_function = loader.load(&context)?;
-        let output: Config =
-            tracing::info_span!("lua_eval").in_scope(|| config_function.call(()))?;
+        let output = loader.render(&context)?;
 
         let writer = reader.get_mut();
         tracing::info_span!("serialize")
@@ -45,10 +43,9 @@ mod tests {
         let dir = tempfile::tempdir().expect("tempdir");
         let pwd = dir.path().to_str().expect("tempdir path utf8");
         let mut loader = ConfigLoader::from_source(r#"return green(ctx.pwd .. " $ ")"#).unwrap();
-        let ctx = ShellContext {
-            pwd: Some(dir.path().to_path_buf()),
-            user: Some("test".into()),
-            ..ShellContext::default()
+        let ctx = RenderContext {
+            pwd: dir.path().to_path_buf(),
+            env: [("USER".to_string(), "test".to_string())].into(),
         };
 
         let (client, server) = UnixStream::pair().unwrap();
@@ -61,7 +58,7 @@ mod tests {
 
     #[test]
     fn daemon_serves_prompt_with_plugin_data() {
-        let mut plugin = PluginFixture::test_harness();
+        let plugin = PluginFixture::test_harness();
         std::fs::write(plugin.dir.join(".starship-test-marker"), "").unwrap();
         let result = plugin.render(r#"test.home or "none""#);
         assert_ne!(result, "");
@@ -70,7 +67,7 @@ mod tests {
 
     #[test]
     fn plugin_method_returns_nil_when_inapplicable() {
-        let mut plugin = PluginFixture::test_harness();
+        let plugin = PluginFixture::test_harness();
         let result = plugin.render(r#"test.home or "inapplicable""#);
         assert_eq!(result, "inapplicable");
     }

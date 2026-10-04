@@ -1,7 +1,8 @@
 use anyhow::Result;
 use clap::Parser;
-use starship_common::{ShellContext, init_tracing, socket};
-use starship_runtime::{Config, ConfigLoader};
+use starship_common::{RenderContext, init_tracing, socket};
+use starship_runtime::ConfigLoader;
+use std::path::PathBuf;
 use std::process::Command;
 use std::thread;
 use std::time::Duration;
@@ -16,12 +17,10 @@ fn main() -> Result<()> {
     let _guard = init_tracing();
     let _span = tracing::info_span!("main").entered();
     let args = Args::parse();
-    let ctx = construct_shell_context();
+    let ctx = construct_render_context();
 
     if args.no_daemon {
-        let mut loader = ConfigLoader::new()?;
-        let func = loader.load(&ctx)?;
-        let output: Config = func.call(())?;
+        let output = ConfigLoader::new()?.render(&ctx)?;
         print!("{}", output.format);
     } else {
         let stream = connect_or_spawn_daemon()?;
@@ -32,15 +31,19 @@ fn main() -> Result<()> {
     Ok(())
 }
 
-fn construct_shell_context() -> ShellContext {
-    let pwd = std::env::current_dir().ok();
-    let user = std::env::var_os("USER").map(|os| os.to_string_lossy().to_string());
+/// The shell's state for this prompt. The working directory falls back to
+/// `$PWD`, then `/`, when the process can't read it (e.g. it was deleted).
+fn construct_render_context() -> RenderContext {
+    let pwd = std::env::current_dir()
+        .ok()
+        .or_else(|| std::env::var_os("PWD").map(PathBuf::from))
+        .unwrap_or_else(|| PathBuf::from("/"));
     // Variables that aren't valid UTF-8 are skipped.
     let env = std::env::vars_os()
         .filter_map(|(name, value)| Some((name.into_string().ok()?, value.into_string().ok()?)))
         .collect();
 
-    ShellContext { pwd, user, env }
+    RenderContext { pwd, env }
 }
 
 fn connect_or_spawn_daemon() -> Result<std::os::unix::net::UnixStream> {

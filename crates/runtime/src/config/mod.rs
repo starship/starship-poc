@@ -1,11 +1,12 @@
 use crate::config::nerd_font::register_icon_function;
 use crate::config::style::{LuaStyledContent, register_compact_function, register_style_functions};
+#[cfg(any(test, feature = "testing"))]
+use crate::plugin::RequestCounts;
 use crate::plugin::{PluginProcess, RenderState, load_plugins, register_plugin};
 use anyhow::Result;
 use mlua::{FromLua, Lua, LuaOptions, LuaSerdeExt, SerializeOptions, StdLib};
 use serde::{Deserialize, Serialize};
-use starship_common::{ShellContext, get_cache_dir, get_config_dir, styled::StyledContent};
-use starship_plugin_core::RenderContext;
+use starship_common::{RenderContext, get_cache_dir, get_config_dir, styled::StyledContent};
 use std::cell::RefCell;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
@@ -42,10 +43,10 @@ enum ConfigSource {
     Inline,
 }
 
-/// Loads and caches the Lua config file.
+/// Loads, caches, and renders the Lua config file.
 ///
 /// Recompiles only when the file's mtime changes. The Lua state persists
-/// across loads, so the sandboxed environment is created once at startup.
+/// across renders, so the sandboxed environment is created once at startup.
 pub struct ConfigLoader {
     lua: Lua,
     config_env: mlua::Table,
@@ -54,6 +55,7 @@ pub struct ConfigLoader {
     cached_mtime: Option<SystemTime>,
     /// The render in progress, shared with every plugin's Lua proxy.
     render: Rc<RefCell<RenderState>>,
+    plugins: Vec<Rc<RefCell<PluginProcess>>>,
 }
 
 impl ConfigLoader {
@@ -67,7 +69,7 @@ impl ConfigLoader {
         let cache_dir = get_plugin_cache_dir();
         let plugins = load_plugins(&get_plugin_dir(), cache_dir.as_deref());
         let lua = create_lua()?;
-        let render = register_plugins(&lua, plugins)?;
+        let (render, plugins) = register_plugins(&lua, plugins)?;
         let config_env = create_config_env(&lua)?;
 
         Ok(Self {
@@ -77,6 +79,7 @@ impl ConfigLoader {
             cached_func: None,
             cached_mtime: None,
             render,
+            plugins,
         })
     }
 
@@ -87,7 +90,7 @@ impl ConfigLoader {
 
     pub fn from_source_with_plugins(source: &str, plugins: Vec<PluginProcess>) -> Result<Self> {
         let lua = create_lua()?;
-        let render = register_plugins(&lua, plugins)?;
+        let (render, plugins) = register_plugins(&lua, plugins)?;
         let config_env = create_config_env(&lua)?;
         let func = lua
             .load(source)
@@ -101,23 +104,38 @@ impl ConfigLoader {
             cached_func: Some(func),
             cached_mtime: None,
             render,
+            plugins,
         })
     }
 
-    /// Loads the config, recompiling only if the file changed.
+    /// Renders the config for one prompt, recompiling first if the file
+    /// changed. Every plugin the config read gets an `EndRender` afterward,
+    /// even when the config fails.
     ///
     /// # Panics
     ///
     /// Panics if called before any config source has been compiled.
-    #[instrument(skip_all, name = "ConfigLoader::load")]
-    pub fn load(&mut self, context: &ShellContext) -> Result<&mlua::Function> {
+    #[instrument(skip_all, name = "ConfigLoader::render")]
+    pub fn render(&mut self, context: &RenderContext) -> Result<Config> {
         self.maybe_recompile()?;
-        self.set_globals(context)?;
-
-        Ok(self
+        self.begin_render(context)?;
+        let func = self
             .cached_func
             .as_ref()
-            .expect("cached function should be set"))
+            .expect("cached function should be set");
+        let output = tracing::info_span!("lua_eval").in_scope(|| func.call(()));
+        self.end_render();
+        Ok(output?)
+    }
+
+    /// How many requests of each kind the named plugin has been sent.
+    #[cfg(any(test, feature = "testing"))]
+    pub fn plugin_requests(&self, name: &str) -> Option<RequestCounts> {
+        self.plugins
+            .iter()
+            .map(|plugin| plugin.borrow())
+            .find(|plugin| plugin.name() == name)
+            .map(|plugin| plugin.requests())
     }
 
     #[instrument(skip_all)]
@@ -142,39 +160,56 @@ impl ConfigLoader {
         Ok(())
     }
 
+    /// Exposes the render's context to Lua as `ctx` and starts a new render
+    /// for the plugin proxies.
     #[instrument(skip_all)]
-    fn set_globals(&self, context: &ShellContext) -> Result<()> {
-        /// The part of the shell context the config sees as `ctx`.
+    fn begin_render(&self, context: &RenderContext) -> Result<()> {
+        /// The part of the render context the config sees as `ctx`.
         #[derive(Serialize)]
         struct LuaContext<'a> {
-            pwd: Option<&'a Path>,
+            pwd: &'a Path,
             user: Option<&'a str>,
         }
 
         let lua_context = LuaContext {
-            pwd: context.pwd.as_deref(),
-            user: context.user.as_deref(),
+            pwd: &context.pwd,
+            user: context.env.get("USER").map(String::as_str),
         };
         let options = SerializeOptions::new().serialize_none_to_null(false);
         let ctx = self.lua.to_value_with(&lua_context, options)?;
         self.lua.globals().set("ctx", ctx)?;
 
-        self.render.borrow_mut().begin(RenderContext {
-            pwd: context.pwd.clone().unwrap_or_else(|| PathBuf::from("/")),
-            env: context.env.clone(),
-        });
-
+        self.render.borrow_mut().begin(context.clone());
         Ok(())
+    }
+
+    /// Tells every plugin the config read that the render is over.
+    fn end_render(&self) {
+        let mut render = self.render.borrow_mut();
+        render.finish();
+        for plugin in &self.plugins {
+            let mut plugin = plugin.borrow_mut();
+            if render.has_begun(plugin.name()) {
+                plugin.end_render(render.id());
+            }
+        }
     }
 }
 
+/// The render state and plugins every Lua proxy shares.
+type SharedPlugins = (Rc<RefCell<RenderState>>, Vec<Rc<RefCell<PluginProcess>>>);
+
 /// Registers each plugin as a Lua global, all sharing one render state.
-fn register_plugins(lua: &Lua, plugins: Vec<PluginProcess>) -> Result<Rc<RefCell<RenderState>>> {
+fn register_plugins(lua: &Lua, plugins: Vec<PluginProcess>) -> Result<SharedPlugins> {
     let render = Rc::new(RefCell::new(RenderState::default()));
-    for plugin in plugins {
-        register_plugin(lua, Rc::new(RefCell::new(plugin)), Rc::clone(&render))?;
+    let plugins: Vec<_> = plugins
+        .into_iter()
+        .map(|plugin| Rc::new(RefCell::new(plugin)))
+        .collect();
+    for plugin in &plugins {
+        register_plugin(lua, Rc::clone(plugin), Rc::clone(&render))?;
     }
-    Ok(render)
+    Ok((render, plugins))
 }
 
 /// Creates a new Lua state with the sandboxed environment.
@@ -269,27 +304,26 @@ mod tests {
     use starship_common::owo_colors::style;
     use starship_common::render::paint;
 
-    fn ctx(pwd: Option<&str>, user: Option<&str>) -> ShellContext {
-        ShellContext {
-            pwd: pwd.map(PathBuf::from),
-            user: user.map(str::to_string),
-            ..ShellContext::default()
+    fn ctx(pwd: &str, user: Option<&str>) -> RenderContext {
+        RenderContext {
+            pwd: PathBuf::from(pwd),
+            env: user
+                .map(|user| ("USER".to_string(), user.to_string()))
+                .into_iter()
+                .collect(),
         }
     }
 
-    fn try_render(source: &str, context: &ShellContext) -> Result<String> {
-        let mut loader = ConfigLoader::from_source(source)?;
-        let output: Config = loader.load(context)?.call(())?;
-        Ok(output.format.to_string())
+    fn try_render(source: &str, context: &RenderContext) -> Result<String> {
+        render_with(&mut ConfigLoader::from_source(source)?, context)
     }
 
     fn render(source: &str) -> String {
-        try_render(source, &ctx(Some("/tmp/test"), Some("testuser"))).expect("render failed")
+        try_render(source, &ctx("/tmp/test", Some("testuser"))).expect("render failed")
     }
 
-    fn render_reloadable(loader: &mut ConfigLoader, context: &ShellContext) -> Result<String> {
-        let output: Config = loader.load(context)?.call(())?;
-        Ok(output.format.to_string())
+    fn render_with(loader: &mut ConfigLoader, context: &RenderContext) -> Result<String> {
+        Ok(loader.render(context)?.format.to_string())
     }
 
     #[test]
@@ -315,9 +349,9 @@ mod tests {
     }
 
     #[test]
-    fn none_context_fields_are_nil_in_lua() -> Result<()> {
+    fn user_is_nil_in_lua_without_a_user_variable() -> Result<()> {
         assert_eq!(
-            try_render(r#"return ctx.pwd and "truthy" or "nil""#, &ctx(None, None),)?,
+            try_render(r#"return ctx.user or "nil""#, &ctx("/tmp", None))?,
             "nil",
         );
         Ok(())
@@ -325,7 +359,7 @@ mod tests {
 
     #[test]
     fn sandbox_blocks_dangerous_globals() {
-        let c = &ctx(Some("/tmp"), Some("u"));
+        let c = &ctx("/tmp", Some("u"));
         for expr in [
             r#"io.open("nope.txt")"#,
             r#"os.execute("echo pwned")"#,
@@ -347,15 +381,15 @@ mod tests {
 
         let dir = tempfile::tempdir()?;
         let path = dir.path().join("config.lua");
-        let c = &ctx(None, None);
+        let c = &ctx("/tmp", None);
 
         std::fs::write(&path, r#"return "one""#)?;
         let mut loader = ConfigLoader::from_path(&path)?;
-        assert_eq!(render_reloadable(&mut loader, c)?, "one");
+        assert_eq!(render_with(&mut loader, c)?, "one");
 
         std::fs::write(&path, r#"return "two""#)?;
         set_file_mtime(&path, FileTime::from_unix_time(i64::MAX / 2, 0))?;
-        assert_eq!(render_reloadable(&mut loader, c)?, "two");
+        assert_eq!(render_with(&mut loader, c)?, "two");
 
         Ok(())
     }
@@ -419,7 +453,7 @@ mod tests {
 
     #[test]
     fn plugin_proxy_resolves_field() {
-        let mut plugin = PluginFixture::test_harness();
+        let plugin = PluginFixture::test_harness();
         std::fs::write(plugin.dir.join(".starship-test-marker"), "").unwrap();
         let result = plugin.render(r#"test.home or "N/A""#);
         assert_ne!(result, "N/A");
@@ -427,8 +461,39 @@ mod tests {
 
     #[test]
     fn plugin_proxy_returns_nil_for_unknown_method() {
-        let mut plugin = PluginFixture::test_harness();
+        let plugin = PluginFixture::test_harness();
         let result = plugin.render(r#"test.fakefield or "fallback""#);
         assert_eq!(result, "fallback");
+    }
+
+    #[test]
+    fn each_read_plugin_begins_and_ends_once_per_render() {
+        use crate::plugin::test_helpers::plugin_binary;
+
+        let test = PluginFixture::test_harness();
+        std::fs::write(test.dir.join(".starship-test-marker"), "").unwrap();
+        let spawn = |package| PluginProcess::spawn(&plugin_binary(package), None).unwrap();
+        let plugins = vec![
+            spawn("starship-plugin-test-harness"),
+            spawn("starship-plugin-vcs-test-harness"),
+        ];
+        let source = "return compact(test.home, test.pwd, test.home)";
+        let mut loader = ConfigLoader::from_source_with_plugins(source, plugins).unwrap();
+        for _ in 0..2 {
+            loader.render(&test.context()).unwrap();
+        }
+
+        let counts = |name| loader.plugin_requests(name).unwrap();
+        // Two renders, each reading `home` (twice) and `pwd`.
+        assert_eq!(
+            counts("test"),
+            RequestCounts {
+                begin_render: 2,
+                call: 4,
+                end_render: 2,
+            }
+        );
+        // The config never reads `vcs-test`.
+        assert_eq!(counts("vcs-test"), RequestCounts::default());
     }
 }

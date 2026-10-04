@@ -67,8 +67,9 @@ fn export(mut impl_block: ItemImpl, handler: &proc_macro2::TokenStream) -> Token
 
         fn main() {
             let plugin = <#struct_type as ::core::default::Default>::default();
+            let renders = ::starship_plugin_sdk::dispatch::Renders::default();
             ::starship_plugin_sdk::dispatch::serve(|request| {
-                ::starship_plugin_sdk::dispatch::#handler(&plugin, request)
+                ::starship_plugin_sdk::dispatch::#handler(&plugin, &renders, request)
             });
         }
     })

@@ -920,6 +920,7 @@ dependencies = [
  "directories",
  "owo-colors",
  "serde",
+ "starship-plugin-core",
  "tracing",
  "tracing-profile",
  "tracing-subscriber",

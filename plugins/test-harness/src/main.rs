@@ -22,6 +22,16 @@ impl TestPlugin {
         ctx.env("HOME").map(str::to_string)
     }
 
+    /// The shell's `USER`, from the render context.
+    pub fn user(&self, ctx: &Ctx) -> Option<String> {
+        ctx.env("USER").map(str::to_string)
+    }
+
+    /// The render's pwd, read without running anything.
+    pub fn dir(&self, ctx: &Ctx) -> String {
+        ctx.pwd().display().to_string()
+    }
+
     /// Runs `pwd`, returning the directory commands run in.
     pub fn pwd(&self, ctx: &Ctx) -> Option<String> {
         ctx.exec_uncached("pwd", &[]).map(|s| s.trim().to_string())

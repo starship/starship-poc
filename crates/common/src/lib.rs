@@ -1,12 +1,11 @@
-mod context;
 pub mod render;
 pub mod socket;
 pub mod styled;
 mod tracing;
 
-pub use context::ShellContext;
 pub use owo_colors;
 pub use render::paint;
+pub use starship_plugin_core::RenderContext;
 pub use tracing::init_tracing;
 
 use anyhow::{Context, Result};

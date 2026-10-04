@@ -12,6 +12,6 @@ help: the trait `Plugin` is not implemented for `BadPlugin`
 note: required by a bound in `starship_plugin_sdk::dispatch::handle_plugin`
  --> $WORKSPACE/crates/plugin-sdk/src/dispatch.rs
   |
-  | pub fn handle_plugin<P: Plugin + Methods>(plugin: &P, request: Request) -> Response {
+  | pub fn handle_plugin<P: Plugin + Methods>(
   |                         ^^^^^^ required by this bound in `handle_plugin`
   = note: this error originates in the attribute macro `export_plugin` (in Nightly builds, run with -Z macro-backtrace for more info)

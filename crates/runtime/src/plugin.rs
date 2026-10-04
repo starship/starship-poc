@@ -25,8 +25,8 @@ struct Pipes {
 }
 
 impl Pipes {
-    /// Sends one request and waits for its response.
-    fn exchange(&mut self, request: &Request) -> Result<Response> {
+    /// Writes one request, returning its ID.
+    fn write(&mut self, request: &Request) -> Result<u64> {
         let id = self.next_id;
         self.next_id += 1;
 
@@ -34,7 +34,12 @@ impl Pipes {
         line.push('\n');
         self.stdin.write_all(line.as_bytes())?;
         self.stdin.flush()?;
+        Ok(id)
+    }
 
+    /// Sends one request and waits for its response.
+    fn exchange(&mut self, request: &Request) -> Result<Response> {
+        let id = self.write(request)?;
         let mut reply = String::new();
         ensure!(
             self.stdout.read_line(&mut reply)? > 0,
@@ -50,6 +55,33 @@ impl Pipes {
     }
 }
 
+/// What a plugin answered when a render began.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct Applicability {
+    pub applicable: bool,
+    /// A VCS plugin's distance from pwd to its sentinel.
+    pub depth: Option<u32>,
+}
+
+/// How many requests of each kind the daemon has sent a plugin.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct RequestCounts {
+    pub begin_render: u32,
+    pub call: u32,
+    pub end_render: u32,
+}
+
+impl RequestCounts {
+    fn record(&mut self, request: &Request) {
+        match request {
+            Request::Describe { .. } => {}
+            Request::BeginRender { .. } => self.begin_render += 1,
+            Request::Call { .. } => self.call += 1,
+            Request::EndRender { .. } => self.end_render += 1,
+        }
+    }
+}
+
 /// A running plugin: one long-lived child process speaking the
 /// [`Request`]/[`Response`] protocol over its stdin and stdout.
 ///
@@ -61,6 +93,7 @@ pub struct PluginProcess {
     /// reaped.
     pipes: Option<Pipes>,
     manifest: Manifest,
+    requests: RequestCounts,
 }
 
 impl PluginProcess {
@@ -101,6 +134,7 @@ impl PluginProcess {
             child,
             pipes: Some(pipes),
             manifest,
+            requests: RequestCounts::default(),
         })
     }
 
@@ -117,38 +151,37 @@ impl PluginProcess {
         &self.manifest.shadows
     }
 
-    /// Whether the plugin applies to the render described by `context`. A
-    /// failing plugin is treated as inapplicable.
-    #[instrument(skip_all, fields(plugin = %self.manifest.name))]
-    pub fn is_applicable(&mut self, context: &RenderContext) -> bool {
-        let request = Request::IsApplicable {
-            context: context.clone(),
-        };
-        matches!(self.send(&request), Some(Response::IsApplicable(true)))
+    /// How many requests of each kind this plugin has been sent.
+    pub fn requests(&self) -> RequestCounts {
+        self.requests
     }
 
-    /// Distance from the render's pwd to the plugin's VCS sentinel. `None`
-    /// for general plugins and VCS plugins that don't detect here.
-    pub fn detect_depth(&mut self, context: &RenderContext) -> Option<u32> {
-        let request = Request::DetectDepth {
+    /// Starts render `render_id` in the plugin, sending its context once. A
+    /// failing plugin is treated as inapplicable.
+    #[instrument(skip(self, context), fields(plugin = %self.manifest.name))]
+    pub fn begin_render(&mut self, render_id: u64, context: &RenderContext) -> Applicability {
+        let request = Request::BeginRender {
+            render_id,
             context: context.clone(),
         };
-        match self.send(&request)? {
-            Response::DetectDepth(depth) => depth,
-            _ => None,
+        match self.send(&request) {
+            Some(Response::BeginRender { applicable, depth }) => {
+                Applicability { applicable, depth }
+            }
+            _ => Applicability::default(),
         }
     }
 
-    /// Calls a method from the plugin's manifest. Returns `Null` for unknown
-    /// methods and for failures, which are logged.
-    #[instrument(skip(self, context), fields(plugin = %self.manifest.name))]
-    pub fn call_method(&mut self, context: &RenderContext, method: &str) -> Value {
+    /// Calls a method from the plugin's manifest within a begun render.
+    /// Returns `Null` for unknown methods and for failures, which are logged.
+    #[instrument(skip(self), fields(plugin = %self.manifest.name))]
+    pub fn call_method(&mut self, render_id: u64, method: &str) -> Value {
         if !self.manifest.methods.iter().any(|m| m == method) {
             return Value::Null;
         }
         let request = Request::Call {
+            render_id,
             method: method.to_string(),
-            context: context.clone(),
         };
         match self.send(&request) {
             Some(Response::Call(value)) => value,
@@ -156,17 +189,30 @@ impl PluginProcess {
         }
     }
 
-    /// Sends one request. A crashed plugin, a closed pipe, or an unparseable
-    /// response is logged and becomes `None`; a mismatched response variant
-    /// is treated as a failure by callers.
+    /// Tells the plugin render `render_id` is over. Doesn't wait for an
+    /// answer.
+    pub fn end_render(&mut self, render_id: u64) {
+        self.send(&Request::EndRender { render_id });
+    }
+
+    /// Sends one request, waiting for the response when the request expects
+    /// one. A crashed plugin, a closed pipe, or an unparseable response is
+    /// logged and becomes `None`; a mismatched response variant is treated as
+    /// a failure by callers.
     fn send(&mut self, request: &Request) -> Option<Response> {
-        self.pipes
-            .as_mut()?
-            .exchange(request)
+        self.requests.record(request);
+        let pipes = self.pipes.as_mut()?;
+        let result = if request.expects_response() {
+            pipes.exchange(request).map(Some)
+        } else {
+            pipes.write(request).map(|_| None)
+        };
+        result
             .inspect_err(|error| {
                 tracing::error!(plugin = %self.manifest.name, ?request, %error, "plugin request failed");
             })
             .ok()
+            .flatten()
     }
 }
 
@@ -196,24 +242,54 @@ fn forward_stderr(plugin: String, stderr: ChildStderr) {
 /// The render in progress, shared by every plugin's Lua proxy.
 #[derive(Default)]
 pub struct RenderState {
+    id: u64,
+    /// False between renders, e.g. while Luau compiles the config and
+    /// resolves `plugin.field` lookups ahead of time.
+    in_render: bool,
     context: RenderContext,
-    /// Each plugin's applicability, asked at most once per render.
-    applicable: HashMap<String, bool>,
+    /// The plugins the config has read in this render, by name.
+    begun: HashMap<String, BegunPlugin>,
+}
+
+/// A plugin the config has read in the current render.
+struct BegunPlugin {
+    applicability: Applicability,
+    /// Values already fetched, so each field crosses the pipe once per render.
+    values: HashMap<String, Value>,
 }
 
 impl RenderState {
     /// Starts a new render, forgetting everything from the previous one.
     pub fn begin(&mut self, context: RenderContext) {
+        self.id += 1;
+        self.in_render = true;
         self.context = context;
-        self.applicable.clear();
+        self.begun.clear();
+    }
+
+    /// Marks the render over. Plugin reads answer nil until the next
+    /// [`begin`](Self::begin).
+    pub fn finish(&mut self) {
+        self.in_render = false;
+    }
+
+    pub fn id(&self) -> u64 {
+        self.id
+    }
+
+    /// Whether the config has read `plugin` in this render, which means it
+    /// needs an `EndRender`.
+    pub fn has_begun(&self, plugin: &str) -> bool {
+        self.begun.contains_key(plugin)
     }
 }
 
 /// Registers a plugin as a Lua global with an `__index` metamethod.
 ///
 /// Accessing `plugin_name.field` in Lua calls the plugin method of that name
-/// for the render in `render`. Skips registration (with a warning) if the name
-/// collides with an existing global.
+/// for the render in `render`. The first access in a render begins the render
+/// in the plugin, and each field is fetched at most once per render. Skips
+/// registration (with a warning) if the name collides with an existing global.
 pub fn register_plugin(
     lua: &Lua,
     plugin: Rc<RefCell<PluginProcess>>,
@@ -236,16 +312,26 @@ pub fn register_plugin(
             let mut plugin = plugin.borrow_mut();
             let mut render = render.borrow_mut();
             let RenderState {
+                id,
+                in_render,
                 context,
-                applicable,
+                begun,
             } = &mut *render;
-            let is_applicable = *applicable
-                .entry(name.clone())
-                .or_insert_with(|| plugin.is_applicable(context));
-            if !is_applicable {
+            if !*in_render {
                 return Ok(mlua::Value::Nil);
             }
-            lua.to_value(&plugin.call_method(context, &key))
+            let begun = begun.entry(name.clone()).or_insert_with(|| BegunPlugin {
+                applicability: plugin.begin_render(*id, context),
+                values: HashMap::new(),
+            });
+            if !begun.applicability.applicable {
+                return Ok(mlua::Value::Nil);
+            }
+            let value = begun
+                .values
+                .entry(key.clone())
+                .or_insert_with(|| plugin.call_method(*id, &key));
+            lua.to_value(value)
         })?,
     )?;
 
@@ -319,6 +405,7 @@ pub mod test_helpers {
     use starship_plugin_core::RenderContext;
 
     use super::PluginProcess;
+    use crate::config::ConfigLoader;
 
     /// The workspace's built plugin executable named `package`, e.g.
     /// `starship-plugin-test-harness`.
@@ -339,6 +426,7 @@ pub mod test_helpers {
         pub dir: PathBuf,
         binary: PathBuf,
         plugin: PluginProcess,
+        last_render: u64,
         _tempdir: tempfile::TempDir,
     }
 
@@ -360,23 +448,31 @@ pub mod test_helpers {
                 dir: dir.path().to_path_buf(),
                 binary,
                 plugin,
+                last_render: 0,
                 _tempdir: dir,
             }
         }
 
-        fn context(&self) -> RenderContext {
-            render_context(&self.dir)
+        /// The render context for [`dir`](Self::dir), with `USER=test`.
+        pub fn context(&self) -> RenderContext {
+            let mut context = render_context(&self.dir);
+            context.env.insert("USER".into(), "test".into());
+            context
         }
 
-        /// Calls a method for a render in [`dir`](Self::dir), returning
+        /// Calls a method in its own render in [`dir`](Self::dir), returning
         /// strings as-is and other values as JSON.
         pub fn get(&mut self, method: &str) -> Option<String> {
             self.get_in(&self.context(), method)
         }
 
-        /// Calls a method for the render described by `context`.
+        /// Calls a method in its own render, described by `context`.
         pub fn get_in(&mut self, context: &RenderContext, method: &str) -> Option<String> {
-            match self.plugin.call_method(context, method) {
+            let render_id = self.next_render();
+            self.plugin.begin_render(render_id, context);
+            let value = self.plugin.call_method(render_id, method);
+            self.plugin.end_render(render_id);
+            match value {
                 serde_json::Value::Null => None,
                 serde_json::Value::String(s) => Some(s),
                 other => Some(other.to_string()),
@@ -384,8 +480,11 @@ pub mod test_helpers {
         }
 
         pub fn is_applicable(&mut self) -> bool {
-            let context = self.context();
-            self.plugin.is_applicable(&context)
+            self.begin_and_end().applicable
+        }
+
+        pub fn detect_depth(&mut self) -> Option<u32> {
+            self.begin_and_end().depth
         }
 
         pub fn kind(&self) -> starship_plugin_core::PluginKind {
@@ -396,32 +495,38 @@ pub mod test_helpers {
             self.plugin.shadows().to_vec()
         }
 
-        pub fn detect_depth(&mut self) -> Option<u32> {
-            let context = self.context();
-            self.plugin.detect_depth(&context)
-        }
-
         pub fn name(&self) -> &str {
             self.plugin.name()
         }
 
-        /// Renders `return <lua_expr>` with this plugin registered.
-        pub fn render(&mut self, lua_expr: &str) -> String {
-            use crate::config::{Config, ConfigLoader};
-            use starship_common::ShellContext;
-
-            let lua_src = format!(r"return {lua_expr}");
+        /// A config loader for `return <lua_expr>`, with a fresh instance of
+        /// this plugin registered.
+        pub fn loader(&self, lua_expr: &str) -> ConfigLoader {
             let plugin = PluginProcess::spawn(&self.binary, None).expect("plugin should start");
-            let mut loader = ConfigLoader::from_source_with_plugins(&lua_src, vec![plugin])
-                .expect("loader should build");
-            let ctx = ShellContext {
-                pwd: Some(self.dir.clone()),
-                user: Some("test".into()),
-                env: std::env::vars().collect(),
-            };
-            let func = loader.load(&ctx).expect("config should load");
-            let output: Config = func.call(()).expect("lua should evaluate");
+            ConfigLoader::from_source_with_plugins(&format!("return {lua_expr}"), vec![plugin])
+                .expect("loader should build")
+        }
+
+        /// Renders `return <lua_expr>` once with this plugin registered.
+        pub fn render(&self, lua_expr: &str) -> String {
+            let output = self
+                .loader(lua_expr)
+                .render(&self.context())
+                .expect("config should render");
             output.format.to_string()
+        }
+
+        fn begin_and_end(&mut self) -> super::Applicability {
+            let render_id = self.next_render();
+            let context = self.context();
+            let applicability = self.plugin.begin_render(render_id, &context);
+            self.plugin.end_render(render_id);
+            applicability
+        }
+
+        fn next_render(&mut self) -> u64 {
+            self.last_render += 1;
+            self.last_render
         }
     }
 }
@@ -433,6 +538,7 @@ mod tests {
     use std::time::{Duration, Instant};
 
     use mlua::{Lua, LuaOptions, StdLib};
+    use serde_json::Value;
 
     use super::test_helpers::{PluginFixture, plugin_binary, render_context};
     use super::{PluginKind, PluginProcess, load_plugins};
@@ -527,15 +633,12 @@ mod tests {
         fs::write(dir.path().join(".starship-test-marker"), "").unwrap();
         let context = render_context(dir.path());
         let mut plugin = PluginProcess::spawn(&plugin_binary(TEST_HARNESS), None).unwrap();
-        assert!(plugin.is_applicable(&context));
+        assert!(plugin.begin_render(1, &context).applicable);
 
         plugin.child.kill().unwrap();
         plugin.child.wait().unwrap();
-        assert!(!plugin.is_applicable(&context));
-        assert_eq!(
-            plugin.call_method(&context, "home"),
-            serde_json::Value::Null
-        );
+        assert!(!plugin.begin_render(2, &context).applicable);
+        assert_eq!(plugin.call_method(2, "home"), Value::Null);
     }
 
     #[test]
@@ -553,21 +656,34 @@ mod tests {
     }
 
     #[test]
-    fn requests_use_their_own_render_context() {
-        let mut plugin = PluginFixture::test_harness();
-        let other = tempfile::tempdir().unwrap();
-        let pwd_in = |plugin: &mut PluginFixture, dir: &std::path::Path| {
-            let output = plugin
-                .get_in(&render_context(dir), "pwd")
-                .expect("pwd output");
-            fs::canonicalize(output).unwrap()
-        };
+    fn overlapping_renders_keep_their_own_context() {
+        let first = tempfile::tempdir().unwrap();
+        let second = tempfile::tempdir().unwrap();
+        let mut plugin = PluginProcess::spawn(&plugin_binary(TEST_HARNESS), None).unwrap();
+        plugin.begin_render(1, &render_context(first.path()));
+        plugin.begin_render(2, &render_context(second.path()));
 
-        let dir = plugin.dir.clone();
-        let first = pwd_in(&mut plugin, &dir);
-        let second = pwd_in(&mut plugin, other.path());
-        assert_eq!(first, fs::canonicalize(&plugin.dir).unwrap());
-        assert_eq!(second, fs::canonicalize(other.path()).unwrap());
+        let pwd = |plugin: &mut PluginProcess, render_id| {
+            let output = plugin.call_method(render_id, "pwd");
+            fs::canonicalize(output.as_str().expect("pwd output")).unwrap()
+        };
+        assert_eq!(
+            pwd(&mut plugin, 2),
+            fs::canonicalize(second.path()).unwrap()
+        );
+        assert_eq!(pwd(&mut plugin, 1), fs::canonicalize(first.path()).unwrap());
+    }
+
+    #[test]
+    fn calls_for_unknown_or_ended_renders_return_nil() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut plugin = PluginProcess::spawn(&plugin_binary(TEST_HARNESS), None).unwrap();
+        assert_eq!(plugin.call_method(99, "home"), Value::Null);
+
+        plugin.begin_render(1, &render_context(dir.path()));
+        assert_ne!(plugin.call_method(1, "home"), Value::Null);
+        plugin.end_render(1);
+        assert_eq!(plugin.call_method(1, "home"), Value::Null);
     }
 
     #[test]

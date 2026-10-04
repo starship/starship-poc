@@ -1,9 +1,9 @@
 use anyhow::{Context, Result};
-use starship_common::{ShellContext, styled::StyledContent};
+use starship_common::{RenderContext, styled::StyledContent};
 use std::io::{BufRead, BufReader, Read, Write};
 
 #[tracing::instrument(skip_all)]
-pub fn run<S: Read + Write>(mut stream: S, context: &ShellContext) -> Result<String> {
+pub fn run<S: Read + Write>(mut stream: S, context: &RenderContext) -> Result<String> {
     // Send the context to the daemon
     let request_json =
         tracing::info_span!("serialize_request").in_scope(|| serde_json::to_string(context))?;

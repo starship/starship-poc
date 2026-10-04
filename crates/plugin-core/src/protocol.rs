@@ -6,6 +6,10 @@
 //! request's `id`. Both sides compile against these types, so the contract
 //! can't drift between the SDK and the runtime.
 //!
+//! Plugin work happens inside a render: [`Request::BeginRender`] sends the
+//! [`RenderContext`] once, [`Request::Call`]s refer to it by render ID, and
+//! [`Request::EndRender`] lets the plugin drop it.
+//!
 //! Bump [`ABI_VERSION`] on any breaking change to these types. The daemon
 //! refuses plugins built against a different version.
 
@@ -16,11 +20,11 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 /// Version of the plugin protocol. Plugins report it in their [`Manifest`].
-pub const ABI_VERSION: u32 = 3;
+pub const ABI_VERSION: u32 = 4;
 
-/// The shell's state for one render, sent with every request that does
-/// plugin work. Plugins read pwd and environment from here, never from their
-/// own process.
+/// The shell's state for one render. The client sends it to the daemon, and
+/// the daemon sends it to each plugin once when the render begins. Plugins
+/// read pwd and environment from here, never from their own process.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct RenderContext {
     /// The shell's working directory.
@@ -45,24 +49,38 @@ pub enum Request {
         /// subdirectory named after itself. `None` keeps caches in memory.
         cache_dir: Option<PathBuf>,
     },
-    /// Ask whether the plugin applies to this render.
-    IsApplicable { context: RenderContext },
-    /// Ask a VCS plugin for its distance to the nearest sentinel. General
-    /// plugins answer `None`.
-    DetectDepth { context: RenderContext },
-    /// Call a method listed in the plugin's [`Manifest`].
-    Call {
-        method: String,
+    /// Start a render. The plugin keeps `context` until [`Request::EndRender`]
+    /// and answers with its applicability.
+    BeginRender {
+        render_id: u64,
         context: RenderContext,
     },
+    /// Call a method listed in the plugin's [`Manifest`] within a render.
+    Call { render_id: u64, method: String },
+    /// Finish a render. A notification: the plugin sends no response.
+    EndRender { render_id: u64 },
 }
 
-/// A plugin's answer to a [`Request`], one variant per request.
+impl Request {
+    /// Whether the daemon waits for a [`Response`] to this request.
+    pub fn expects_response(&self) -> bool {
+        !matches!(self, Self::EndRender { .. })
+    }
+}
+
+/// A plugin's answer to a [`Request`], one variant per request that expects
+/// one.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum Response {
     Describe(Manifest),
-    IsApplicable(bool),
-    DetectDepth(Option<u32>),
+    BeginRender {
+        /// Whether the plugin applies to this render. When `false`, the
+        /// daemon sends no `Call`s for it.
+        applicable: bool,
+        /// A VCS plugin's distance from pwd to its nearest sentinel. `None`
+        /// for general plugins and VCS plugins that don't detect here.
+        depth: Option<u32>,
+    },
     /// The method's return value. `Null` becomes `nil` in Lua.
     Call(Value),
 }
@@ -72,7 +90,7 @@ pub enum Response {
 pub enum PluginKind {
     /// Implements `Plugin`.
     General,
-    /// Implements `VcsPlugin` and answers `DetectDepth`.
+    /// Implements `VcsPlugin` and reports a depth when a render begins.
     Vcs,
 }
 

@@ -1,10 +1,10 @@
 use config::BenchConfig;
 use divan::{Bencher, black_box};
-use starship_common::ShellContext;
+use starship_common::RenderContext;
 use starship_daemon::handle_client;
 use starship_runtime::ConfigLoader;
 use starship_runtime::plugin::PluginProcess;
-use starship_runtime::plugin::test_helpers::{PluginFixture, plugin_binary};
+use starship_runtime::plugin::test_helpers::{PluginFixture, plugin_binary, render_context};
 use std::{os::unix::net::UnixStream, path::PathBuf};
 
 mod config;
@@ -30,7 +30,7 @@ const COMPACT_CONFIG: BenchConfig = BenchConfig {
     "#,
 };
 
-const PLUGIN_EXPR: &str = r#"compact(green("test:", test.home), ctx.pwd, "❯")"#;
+const PLUGIN_EXPR: &str = r#"compact(green("test:", test.home), test.user, test.dir, "❯")"#;
 
 const ALL_CONFIGS: [BenchConfig; 3] = [MINIMAL_CONFIG, WITH_MODULES_CONFIG, COMPACT_CONFIG];
 
@@ -38,11 +38,10 @@ fn main() {
     divan::main();
 }
 
-fn context() -> ShellContext {
-    ShellContext {
-        pwd: Some(PathBuf::from("/Users/test/projects/starship")),
-        user: Some("testuser".into()),
-        ..ShellContext::default()
+fn context() -> RenderContext {
+    RenderContext {
+        pwd: PathBuf::from("/Users/test/projects/starship"),
+        env: [("USER".to_string(), "testuser".to_string())].into(),
     }
 }
 
@@ -66,9 +65,7 @@ fn socket_render(bencher: Bencher, config: &BenchConfig) {
 #[divan::bench(args = ALL_CONFIGS)]
 fn cold_start(config: &BenchConfig) {
     let mut loader = ConfigLoader::from_source(config.source).unwrap();
-    let ctx = context();
-    let func = loader.load(&ctx).unwrap();
-    let output: starship_runtime::Config = func.call(()).unwrap();
+    let output = loader.render(&context()).unwrap();
     black_box(output.format.to_string());
 }
 
@@ -76,9 +73,7 @@ fn cold_start(config: &BenchConfig) {
 fn cached_config(bencher: Bencher, config: &BenchConfig) {
     let mut loader = ConfigLoader::from_source(config.source).unwrap();
     bencher.bench_local(|| {
-        let ctx = context();
-        let func = loader.load(&ctx).unwrap();
-        let output: starship_runtime::Config = func.call(()).unwrap();
+        let output = loader.render(&context()).unwrap();
         black_box(output.format.to_string())
     });
 }
@@ -91,20 +86,31 @@ fn plugin_load() {
     black_box(PluginProcess::spawn(&binary, None).unwrap());
 }
 
-#[divan::bench]
-fn plugin_call_method(bencher: Bencher) {
-    let mut fixture = PluginFixture::test_harness();
-    std::fs::write(fixture.dir.join(".starship-test-marker"), "").unwrap();
+/// One field read within a begun render. With `full_env`, the render carries
+/// the bench process's environment; otherwise an empty one.
+#[divan::bench(args = [false, true])]
+fn plugin_call_method(bencher: Bencher, full_env: bool) {
+    let dir = tempfile::tempdir().unwrap();
+    let mut context = render_context(dir.path());
+    if !full_env {
+        context.env.clear();
+    }
+    let mut plugin =
+        PluginProcess::spawn(&plugin_binary("starship-plugin-test-harness"), None).unwrap();
+    plugin.begin_render(1, &context);
     bencher.bench_local(|| {
-        black_box(fixture.get("home"));
+        black_box(plugin.call_method(1, "home"));
     });
 }
 
+/// A full render of a config reading three fields from one plugin.
 #[divan::bench]
-fn config_with_plugins(bencher: Bencher) {
-    let mut fixture = PluginFixture::test_harness();
+fn render_with_plugin_reads(bencher: Bencher) {
+    let fixture = PluginFixture::test_harness();
     std::fs::write(fixture.dir.join(".starship-test-marker"), "").unwrap();
+    let mut loader = fixture.loader(PLUGIN_EXPR);
+    let context = fixture.context();
     bencher.bench_local(|| {
-        black_box(fixture.render(PLUGIN_EXPR));
+        black_box(loader.render(&context).unwrap().format.to_string());
     });
 }

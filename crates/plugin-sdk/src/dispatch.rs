@@ -4,12 +4,16 @@
 //! plugin and generate a `main` that runs [`serve`] with [`handle_plugin`] or
 //! [`handle_vcs_plugin`]. Not part of the public API.
 
+use std::collections::HashMap;
 use std::io::{self, BufRead, Write};
 use std::path::PathBuf;
+use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
 use serde::Serialize;
 use serde_json::Value;
-use starship_plugin_core::{ABI_VERSION, Manifest, Message, PluginKind, Request, Response};
+use starship_plugin_core::{
+    ABI_VERSION, Manifest, Message, PluginKind, RenderContext, Request, Response,
+};
 
 use crate::{Ctx, Plugin, VcsPlugin, exec_cache};
 
@@ -28,50 +32,106 @@ pub fn to_value<T: Serialize>(value: T) -> Value {
     serde_json::to_value(value).unwrap_or(Value::Null)
 }
 
-/// Answers one request for a general plugin.
-pub fn handle_plugin<P: Plugin + Methods>(plugin: &P, request: Request) -> Response {
-    match request {
+/// The renders a plugin has begun and not yet ended, by render ID.
+#[derive(Default)]
+pub struct Renders(Mutex<HashMap<u64, Arc<Ctx>>>);
+
+impl Renders {
+    /// Remembers a render's context until [`end`](Self::end).
+    fn begin(&self, render_id: u64, context: RenderContext) -> Arc<Ctx> {
+        let ctx = Arc::new(Ctx::new(context));
+        self.lock().insert(render_id, Arc::clone(&ctx));
+        ctx
+    }
+
+    /// Runs a method in a begun render. A render the plugin doesn't know
+    /// answers `Null`.
+    fn call(&self, render_id: u64, method: impl FnOnce(&Ctx) -> Value) -> Response {
+        let ctx = self.lock().get(&render_id).cloned();
+        let value = if let Some(ctx) = ctx {
+            method(&ctx)
+        } else {
+            eprintln!("call for unknown render {render_id}");
+            Value::Null
+        };
+        Response::Call(value)
+    }
+
+    fn end(&self, render_id: u64) {
+        self.lock().remove(&render_id);
+    }
+
+    /// A poisoned lock only means another request panicked; the map itself
+    /// is still usable.
+    fn lock(&self) -> MutexGuard<'_, HashMap<u64, Arc<Ctx>>> {
+        self.0.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+}
+
+/// Answers one request for a general plugin. `EndRender` gets no response.
+pub fn handle_plugin<P: Plugin + Methods>(
+    plugin: &P,
+    renders: &Renders,
+    request: Request,
+) -> Option<Response> {
+    Some(match request {
         Request::Describe { cache_dir } => {
             describe(cache_dir, P::NAME, PluginKind::General, &[], P::METHODS)
         }
-        Request::IsApplicable { context } => {
-            Response::IsApplicable(plugin.is_applicable(&Ctx::new(context)))
+        Request::BeginRender { render_id, context } => {
+            let ctx = renders.begin(render_id, context);
+            Response::BeginRender {
+                applicable: plugin.is_applicable(&ctx),
+                depth: None,
+            }
         }
-        Request::DetectDepth { .. } => Response::DetectDepth(None),
-        Request::Call { method, context } => {
-            Response::Call(plugin.call(&method, &Ctx::new(context)))
+        Request::Call { render_id, method } => {
+            renders.call(render_id, |ctx| plugin.call(&method, ctx))
         }
-    }
+        Request::EndRender { render_id } => {
+            renders.end(render_id);
+            return None;
+        }
+    })
 }
 
 /// Answers one request for a VCS plugin. Applicability is derived from
 /// `detect_depth`, and `root` and `branch` route to the trait methods.
-pub fn handle_vcs_plugin<P: VcsPlugin + Methods>(plugin: &P, request: Request) -> Response {
-    match request {
+pub fn handle_vcs_plugin<P: VcsPlugin + Methods>(
+    plugin: &P,
+    renders: &Renders,
+    request: Request,
+) -> Option<Response> {
+    Some(match request {
         Request::Describe { cache_dir } => {
             let methods = [&["root", "branch"], P::METHODS].concat();
             describe(cache_dir, P::NAME, PluginKind::Vcs, P::SHADOWS, &methods)
         }
-        Request::IsApplicable { context } => {
-            Response::IsApplicable(plugin.detect_depth(&Ctx::new(context)).is_some())
+        Request::BeginRender { render_id, context } => {
+            let ctx = renders.begin(render_id, context);
+            let depth = plugin.detect_depth(&ctx);
+            Response::BeginRender {
+                applicable: depth.is_some(),
+                depth,
+            }
         }
-        Request::DetectDepth { context } => {
-            Response::DetectDepth(plugin.detect_depth(&Ctx::new(context)))
-        }
-        Request::Call { method, context } => {
-            let ctx = Ctx::new(context);
-            Response::Call(match method.as_str() {
-                "root" => to_value(plugin.root(&ctx)),
-                "branch" => to_value(plugin.branch(&ctx)),
-                _ => plugin.call(&method, &ctx),
+        Request::Call { render_id, method } => {
+            renders.call(render_id, |ctx| match method.as_str() {
+                "root" => to_value(plugin.root(ctx)),
+                "branch" => to_value(plugin.branch(ctx)),
+                _ => plugin.call(&method, ctx),
             })
         }
-    }
+        Request::EndRender { render_id } => {
+            renders.end(render_id);
+            return None;
+        }
+    })
 }
 
 /// Answers requests from stdin on stdout until the daemon closes stdin.
 /// Called by the generated `main`.
-pub fn serve(mut handle: impl FnMut(Request) -> Response) {
+pub fn serve(mut handle: impl FnMut(Request) -> Option<Response>) {
     let mut stdout = io::stdout().lock();
     for line in io::stdin().lock().lines() {
         let Ok(line) = line else {
@@ -84,9 +144,12 @@ pub fn serve(mut handle: impl FnMut(Request) -> Response) {
                 continue;
             }
         };
+        let Some(body) = handle(request.body) else {
+            continue;
+        };
         let response = Message {
             id: request.id,
-            body: handle(request.body),
+            body,
         };
         if write_line(&mut stdout, &response).is_err() {
             break;
