@@ -1,176 +1,93 @@
 use std::cell::RefCell;
 use std::collections::HashMap;
-use std::path::Path;
+use std::io::{BufRead, BufReader, Write};
+use std::path::{Path, PathBuf};
+use std::process::{Child, ChildStderr, ChildStdin, ChildStdout, Command, Stdio};
 use std::rc::Rc;
 
 use anyhow::{Context, Result, bail, ensure};
 use mlua::{Lua, LuaSerdeExt, Table};
-use serde::Serialize;
-use serde::de::DeserializeOwned;
 use serde_json::Value;
 use starship_plugin_core::{
-    ABI_VERSION, HostRequest, HostResponse, Manifest, PluginKind, RenderContext, Request, Response,
-    from_bitwise, into_bitwise,
+    ABI_VERSION, Manifest, Message, PluginKind, RenderContext, Request, Response,
 };
 use tracing::instrument;
-use wasmtime::{AsContextMut, Cache, Caller, Engine, Linker, Memory, Module, Store, TypedFunc};
 
-use crate::exec_cache::ExecCache;
+/// Plugin executables are named with this prefix, which keeps the daemon from
+/// spawning unrelated binaries that share the plugin dir (e.g. `target/debug`).
+const PLUGIN_PREFIX: &str = "starship-plugin-";
 
-/// Creates a wasmtime Engine with disk-backed compilation caching.
+/// The daemon's ends of a plugin's stdin and stdout.
+struct Pipes {
+    stdin: ChildStdin,
+    stdout: BufReader<ChildStdout>,
+    next_id: u64,
+}
+
+impl Pipes {
+    /// Sends one request and waits for its response.
+    fn exchange(&mut self, request: &Request) -> Result<Response> {
+        let id = self.next_id;
+        self.next_id += 1;
+
+        let mut line = serde_json::to_string(&Message { id, body: request })?;
+        line.push('\n');
+        self.stdin.write_all(line.as_bytes())?;
+        self.stdin.flush()?;
+
+        let mut reply = String::new();
+        ensure!(
+            self.stdout.read_line(&mut reply)? > 0,
+            "plugin closed its stdout"
+        );
+        let response: Message<Response> = serde_json::from_str(&reply)?;
+        ensure!(
+            response.id == id,
+            "plugin answered request {} while {id} was pending",
+            response.id
+        );
+        Ok(response.body)
+    }
+}
+
+/// A running plugin: one long-lived child process speaking the
+/// [`Request`]/[`Response`] protocol over its stdin and stdout.
 ///
-/// Compiled machine code is persisted to the platform cache directory
-/// (e.g. `~/Library/Caches/wasmtime` on macOS). The cache key includes
-/// the wasm bytes, engine config, and wasmtime version, so it
-/// automatically invalidates when any of these change.
-pub fn create_engine() -> Result<Engine> {
-    let mut config = wasmtime::Config::new();
-    config.cache(Some(Cache::from_file(None)?));
-    Ok(Engine::new(&config)?)
-}
-
-/// What the host needs to answer a plugin's [`HostRequest`]s.
-struct HostState {
-    exec_cache: Rc<ExecCache>,
-    /// Set right after instantiation, before any request can arrive.
-    guest: Option<GuestMemory>,
-}
-
-impl HostState {
-    fn respond(&self, request: HostRequest) -> HostResponse {
-        match request {
-            HostRequest::Exec {
-                cmd,
-                args,
-                cwd,
-                cached,
-            } => HostResponse::Exec(self.exec(&cmd, &args, &cwd, cached)),
-            HostRequest::FileExists { path } => HostResponse::FileExists(path.exists()),
-        }
-    }
-
-    #[instrument(skip(self, args))]
-    fn exec(&self, cmd: &str, args: &[String], cwd: &Path, cached: bool) -> Option<String> {
-        if cached && let Some(output) = self.exec_cache.get(cmd, args) {
-            tracing::debug!("cache hit");
-            return Some(output);
-        }
-        let output = run_command(cmd, args, cwd)?;
-        if cached {
-            self.exec_cache.insert(cmd, args, output.clone());
-        }
-        Some(output)
-    }
-}
-
-fn run_command(cmd: &str, args: &[String], pwd: &Path) -> Option<String> {
-    std::process::Command::new(cmd)
-        .args(args)
-        .current_dir(pwd)
-        .output()
-        .ok()
-        .filter(|o| o.status.success())
-        .map(|o| String::from_utf8_lossy(&o.stdout).to_string())
-}
-
-/// Moves JSON messages in and out of a plugin's linear memory.
-///
-/// Messages are passed as a packed `(ptr, len)` `u64`. Whoever receives a
-/// message frees it: the host deallocates what it reads, and the guest frees
-/// what the host wrote with `alloc`.
-#[derive(Clone)]
-struct GuestMemory {
-    memory: Memory,
-    alloc: TypedFunc<u32, u32>,
-    dealloc: TypedFunc<u64, ()>,
-}
-
-impl GuestMemory {
-    fn read<T: DeserializeOwned>(&self, mut store: impl AsContextMut, packed: u64) -> Result<T> {
-        let (ptr, len) = from_bitwise(packed);
-        let mut bytes = vec![0u8; len as usize];
-        self.memory.read(&store, ptr as usize, &mut bytes)?;
-        self.dealloc.call(&mut store, packed)?;
-        Ok(serde_json::from_slice(&bytes)?)
-    }
-
-    fn write<T: Serialize>(&self, mut store: impl AsContextMut, value: &T) -> Result<u64> {
-        let bytes = serde_json::to_vec(value)?;
-        let len = u32::try_from(bytes.len()).context("message exceeds wasm32 memory")?;
-        let ptr = self.alloc.call(&mut store, len)?;
-        self.memory.write(&mut store, ptr as usize, &bytes)?;
-        Ok(into_bitwise(ptr, len))
-    }
-}
-
-/// The plugin's single host import: decode a [`HostRequest`], answer it from
-/// the current render, and write back the [`HostResponse`].
-fn host_handle(mut caller: Caller<'_, HostState>, packed: u64) -> Result<u64> {
-    let guest = caller
-        .data()
-        .guest
-        .clone()
-        .context("guest memory not initialized")?;
-    let request: HostRequest = guest.read(&mut caller, packed)?;
-    let response = caller.data().respond(request);
-    guest.write(&mut caller, &response)
-}
-
-/// A loaded WASM plugin instance backed by wasmtime.
-///
-/// All communication goes through the plugin's `_plugin_handle` export using
-/// the [`Request`]/[`Response`] protocol. The plugin's [`Manifest`] is read
-/// once at load, so its name, kind, and methods are plain fields afterward.
-pub struct WasmPlugin {
-    store: Store<HostState>,
-    guest: GuestMemory,
-    handle: TypedFunc<u64, u64>,
+/// The plugin's [`Manifest`] is read once at startup, so its name, kind, and
+/// methods are plain fields afterward.
+pub struct PluginProcess {
+    child: Child,
+    /// `None` only while dropping, so stdin closes before the process is
+    /// reaped.
+    pipes: Option<Pipes>,
     manifest: Manifest,
 }
 
-impl WasmPlugin {
-    /// Compiles and instantiates a plugin from WASM bytes.
-    pub fn load(engine: &Engine, wasm_bytes: &[u8], exec_cache: Rc<ExecCache>) -> Result<Self> {
-        let module = tracing::info_span!("compile").in_scope(|| Module::new(engine, wasm_bytes))?;
-        Self::from_module(&module, exec_cache)
-    }
-
-    /// Creates a plugin instance from a pre-compiled module, skipping WASM
-    /// compilation. Use when instantiating the same plugin multiple times.
-    pub fn from_module(module: &Module, exec_cache: Rc<ExecCache>) -> Result<Self> {
-        let engine = module.engine();
-        let mut linker = Linker::new(engine);
-        linker.func_wrap(
-            "env",
-            "_host_handle",
-            |caller: Caller<'_, HostState>, packed: u64| -> wasmtime::Result<u64> {
-                host_handle(caller, packed).map_err(|err| wasmtime::Error::msg(err.to_string()))
-            },
-        )?;
-
-        let mut store = Store::new(
-            engine,
-            HostState {
-                exec_cache,
-                guest: None,
-            },
-        );
-        let instance = tracing::info_span!("instantiate")
-            .in_scope(|| linker.instantiate(&mut store, module))?;
-
-        let guest = GuestMemory {
-            memory: instance
-                .get_memory(&mut store, "memory")
-                .context("missing memory export")?,
-            alloc: instance.get_typed_func(&mut store, "alloc")?,
-            dealloc: instance.get_typed_func(&mut store, "dealloc")?,
+impl PluginProcess {
+    /// Starts the plugin executable at `path` and reads its manifest.
+    /// `cache_dir` is where the plugin may persist caches.
+    #[instrument(skip(cache_dir))]
+    pub fn spawn(path: &Path, cache_dir: Option<&Path>) -> Result<Self> {
+        let mut child = Command::new(path)
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .with_context(|| format!("failed to start {}", path.display()))?;
+        let label = path.file_name().unwrap_or_default().to_string_lossy();
+        if let Some(stderr) = child.stderr.take() {
+            forward_stderr(label.into_owned(), stderr);
+        }
+        let mut pipes = Pipes {
+            stdin: child.stdin.take().context("plugin stdin")?,
+            stdout: BufReader::new(child.stdout.take().context("plugin stdout")?),
+            next_id: 0,
         };
-        store.data_mut().guest = Some(guest.clone());
-        let handle = instance.get_typed_func(&mut store, "_plugin_handle")?;
 
-        let Response::Describe(manifest) =
-            exchange(&mut store, &guest, &handle, &Request::Describe)?
-        else {
+        let request = Request::Describe {
+            cache_dir: cache_dir.map(Path::to_path_buf),
+        };
+        let Response::Describe(manifest) = pipes.exchange(&request)? else {
             bail!("plugin answered Describe with an unexpected response");
         };
         ensure!(
@@ -181,9 +98,8 @@ impl WasmPlugin {
         );
 
         Ok(Self {
-            store,
-            guest,
-            handle,
+            child,
+            pipes: Some(pipes),
             manifest,
         })
     }
@@ -240,11 +156,13 @@ impl WasmPlugin {
         }
     }
 
-    /// Sends one request. Traps, decode failures, and mismatched responses
-    /// are logged and become `None` (or the wrong variant, which callers
-    /// treat as a failure).
+    /// Sends one request. A crashed plugin, a closed pipe, or an unparseable
+    /// response is logged and becomes `None`; a mismatched response variant
+    /// is treated as a failure by callers.
     fn send(&mut self, request: &Request) -> Option<Response> {
-        exchange(&mut self.store, &self.guest, &self.handle, request)
+        self.pipes
+            .as_mut()?
+            .exchange(request)
             .inspect_err(|error| {
                 tracing::error!(plugin = %self.manifest.name, ?request, %error, "plugin request failed");
             })
@@ -252,15 +170,27 @@ impl WasmPlugin {
     }
 }
 
-fn exchange(
-    store: &mut Store<HostState>,
-    guest: &GuestMemory,
-    handle: &TypedFunc<u64, u64>,
-    request: &Request,
-) -> Result<Response> {
-    let packed = guest.write(&mut *store, request)?;
-    let result = handle.call(&mut *store, packed)?;
-    guest.read(&mut *store, result)
+impl Drop for PluginProcess {
+    fn drop(&mut self) {
+        // Closing stdin asks the plugin to exit; kill it in case it doesn't.
+        drop(self.pipes.take());
+        let _ = self.child.kill();
+        let _ = self.child.wait();
+    }
+}
+
+/// Logs each line a plugin writes to stderr under the plugin's name.
+fn forward_stderr(plugin: String, stderr: ChildStderr) {
+    let spawned = std::thread::Builder::new()
+        .name(format!("{plugin}-stderr"))
+        .spawn(move || {
+            for line in BufReader::new(stderr).lines().map_while(Result::ok) {
+                tracing::info!(%plugin, "{line}");
+            }
+        });
+    if let Err(error) = spawned {
+        tracing::warn!(%error, "failed to forward plugin stderr");
+    }
 }
 
 /// The render in progress, shared by every plugin's Lua proxy.
@@ -286,7 +216,7 @@ impl RenderState {
 /// collides with an existing global.
 pub fn register_plugin(
     lua: &Lua,
-    plugin: Rc<RefCell<WasmPlugin>>,
+    plugin: Rc<RefCell<PluginProcess>>,
     render: Rc<RefCell<RenderState>>,
 ) -> mlua::Result<()> {
     let name = plugin.borrow().name().to_string();
@@ -324,64 +254,77 @@ pub fn register_plugin(
     Ok(())
 }
 
-/// Scans a directory for `.wasm` files and loads each as a plugin.
+/// Starts every plugin executable in `plugin_dir`, in parallel.
 ///
 /// Returns an empty vec if the directory doesn't exist. Logs and skips
-/// individual plugins that fail to load.
-#[instrument(skip(engine, exec_cache))]
-pub fn load_plugins(
-    engine: &Engine,
-    plugin_dir: &Path,
-    exec_cache: &Rc<ExecCache>,
-) -> Vec<WasmPlugin> {
+/// plugins that fail to start or report a different ABI version.
+#[instrument(skip(cache_dir))]
+pub fn load_plugins(plugin_dir: &Path, cache_dir: Option<&Path>) -> Vec<PluginProcess> {
     let Ok(entries) = std::fs::read_dir(plugin_dir) else {
         return vec![];
     };
-    entries
+    let mut paths: Vec<PathBuf> = entries
         .filter_map(std::result::Result::ok)
-        .filter(|entry| entry.path().extension().is_some_and(|ext| ext == "wasm"))
-        .filter_map(|entry| {
-            let path = entry.path();
-            let bytes = std::fs::read(&path).ok()?;
-            let _span = tracing::info_span!(
-                "WasmPlugin::load",
-                plugin = %path.file_stem().unwrap_or_default().to_string_lossy(),
-            )
-            .entered();
-            WasmPlugin::load(engine, &bytes, Rc::clone(exec_cache))
-                .inspect_err(|error| {
-                    tracing::error!(path = %path.display(), %error, "failed to load plugin");
-                })
-                .ok()
-        })
-        .collect()
+        .map(|entry| entry.path())
+        .filter(|path| is_plugin_executable(path))
+        .collect();
+    paths.sort();
+
+    std::thread::scope(|scope| {
+        let spawning: Vec<_> = paths
+            .iter()
+            .map(|path| (path, scope.spawn(|| PluginProcess::spawn(path, cache_dir))))
+            .collect();
+        spawning
+            .into_iter()
+            .filter_map(|(path, handle)| {
+                let result = handle
+                    .join()
+                    .unwrap_or_else(|_| Err(anyhow::anyhow!("plugin startup panicked")));
+                result
+                    .inspect_err(|error| {
+                        tracing::error!(path = %path.display(), %error, "failed to start plugin");
+                    })
+                    .ok()
+            })
+            .collect()
+    })
+}
+
+/// Whether `path` is an executable file named like a plugin.
+fn is_plugin_executable(path: &Path) -> bool {
+    let named_like_plugin = path
+        .file_name()
+        .and_then(|name| name.to_str())
+        .is_some_and(|name| name.starts_with(PLUGIN_PREFIX));
+    named_like_plugin && is_executable(path)
+}
+
+#[cfg(unix)]
+fn is_executable(path: &Path) -> bool {
+    use std::os::unix::fs::PermissionsExt;
+    path.metadata()
+        .is_ok_and(|metadata| metadata.is_file() && metadata.permissions().mode() & 0o111 != 0)
+}
+
+#[cfg(not(unix))]
+fn is_executable(path: &Path) -> bool {
+    path.is_file() && path.extension().is_some_and(|ext| ext == "exe")
 }
 
 #[cfg(any(test, feature = "testing"))]
 pub mod test_helpers {
     use std::path::{Path, PathBuf};
-    use std::rc::Rc;
 
     use starship_plugin_core::RenderContext;
-    use wasmtime::Module;
 
-    use super::{WasmPlugin, create_engine};
-    use crate::exec_cache::ExecCache;
+    use super::PluginProcess;
 
-    pub const TEST_HARNESS_WASM: &[u8] = include_bytes!(concat!(
-        env!("WASM_PLUGIN_DIR"),
-        "/starship_plugin_test_harness.wasm"
-    ));
-
-    pub const NODEJS_WASM: &[u8] = include_bytes!(concat!(
-        env!("WASM_PLUGIN_DIR"),
-        "/starship_plugin_nodejs.wasm"
-    ));
-
-    pub const VCS_TEST_HARNESS_WASM: &[u8] = include_bytes!(concat!(
-        env!("WASM_PLUGIN_DIR"),
-        "/starship_plugin_vcs_test_harness.wasm"
-    ));
+    /// The workspace's built plugin executable named `package`, e.g.
+    /// `starship-plugin-test-harness`.
+    pub fn plugin_binary(package: &str) -> PathBuf {
+        Path::new(env!("PLUGIN_BIN_DIR")).join(format!("{package}{}", std::env::consts::EXE_SUFFIX))
+    }
 
     /// A render context for `pwd` with the test process's environment.
     pub fn render_context(pwd: &Path) -> RenderContext {
@@ -391,35 +334,32 @@ pub mod test_helpers {
         }
     }
 
-    /// A loaded plugin, rendering in its own temporary working directory.
+    /// A running plugin, rendering in its own temporary working directory.
     pub struct PluginFixture {
         pub dir: PathBuf,
-        plugin: WasmPlugin,
-        module: Module,
+        binary: PathBuf,
+        plugin: PluginProcess,
         _tempdir: tempfile::TempDir,
     }
 
     impl PluginFixture {
         /// The general test plugin (`test`), which exercises every `Ctx` helper.
         pub fn test_harness() -> Self {
-            Self::from_wasm(TEST_HARNESS_WASM)
+            Self::from_binary(plugin_binary("starship-plugin-test-harness"))
         }
 
         /// The stub VCS plugin (`vcs-test`).
         pub fn vcs_test_harness() -> Self {
-            Self::from_wasm(VCS_TEST_HARNESS_WASM)
+            Self::from_binary(plugin_binary("starship-plugin-vcs-test-harness"))
         }
 
-        pub fn from_wasm(bytes: &[u8]) -> Self {
+        pub fn from_binary(binary: PathBuf) -> Self {
             let dir = tempfile::TempDir::new().expect("tempdir");
-            let engine = create_engine().expect("engine should build");
-            let module = Module::new(&engine, bytes).expect("plugin should compile");
-            let plugin = WasmPlugin::from_module(&module, Rc::new(ExecCache::in_memory()))
-                .expect("plugin should load");
+            let plugin = PluginProcess::spawn(&binary, None).expect("plugin should start");
             Self {
                 dir: dir.path().to_path_buf(),
+                binary,
                 plugin,
-                module,
                 _tempdir: dir,
             }
         }
@@ -471,8 +411,7 @@ pub mod test_helpers {
             use starship_common::ShellContext;
 
             let lua_src = format!(r"return {lua_expr}");
-            let plugin = WasmPlugin::from_module(&self.module, Rc::new(ExecCache::in_memory()))
-                .expect("plugin should load");
+            let plugin = PluginProcess::spawn(&self.binary, None).expect("plugin should start");
             let mut loader = ConfigLoader::from_source_with_plugins(&lua_src, vec![plugin])
                 .expect("loader should build");
             let ctx = ShellContext {
@@ -490,14 +429,15 @@ pub mod test_helpers {
 #[cfg(test)]
 mod tests {
     use std::fs;
-    use std::rc::Rc;
+    use std::process::{Command, Stdio};
+    use std::time::{Duration, Instant};
 
     use mlua::{Lua, LuaOptions, StdLib};
-    use starship_plugin_core::{HostRequest, HostResponse};
 
-    use super::test_helpers::{PluginFixture, render_context};
-    use super::{HostState, PluginKind, create_engine, load_plugins};
-    use crate::exec_cache::ExecCache;
+    use super::test_helpers::{PluginFixture, plugin_binary, render_context};
+    use super::{PluginKind, PluginProcess, load_plugins};
+
+    const TEST_HARNESS: &str = "starship-plugin-test-harness";
 
     #[test]
     fn sandboxed_luau_supports_index_metamethod() {
@@ -520,23 +460,6 @@ mod tests {
     }
 
     #[test]
-    fn host_answers_file_exists_for_absolute_paths() {
-        let dir = tempfile::tempdir().unwrap();
-        fs::write(dir.path().join("present"), "").unwrap();
-        let state = HostState {
-            exec_cache: Rc::new(ExecCache::in_memory()),
-            guest: None,
-        };
-        let exists = |name: &str| {
-            state.respond(HostRequest::FileExists {
-                path: dir.path().join(name),
-            })
-        };
-        assert_eq!(exists("present"), HostResponse::FileExists(true));
-        assert_eq!(exists("absent"), HostResponse::FileExists(false));
-    }
-
-    #[test]
     fn plugin_loads_with_declared_name() {
         let plugin = PluginFixture::test_harness();
         assert_eq!(plugin.name(), "test");
@@ -551,10 +474,68 @@ mod tests {
     #[test]
     fn load_plugins_empty_dir_returns_empty_vec() {
         let plugin_dir = tempfile::tempdir().expect("plugin dir");
-        let engine = create_engine().unwrap();
-        let cache = Rc::new(ExecCache::in_memory());
-        let plugins = load_plugins(&engine, plugin_dir.path(), &cache);
-        assert!(plugins.is_empty());
+        assert!(load_plugins(plugin_dir.path(), None).is_empty());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn load_plugins_only_starts_plugin_executables() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let plugin_dir = tempfile::tempdir().unwrap();
+        std::os::unix::fs::symlink(
+            plugin_binary(TEST_HARNESS),
+            plugin_dir.path().join(TEST_HARNESS),
+        )
+        .unwrap();
+        // An executable that isn't a plugin, like `starship-daemon` sitting in
+        // `target/debug`. It leaves a marker if anything runs it.
+        let marker = plugin_dir.path().join("ran");
+        let other = plugin_dir.path().join("starship-daemon");
+        fs::write(&other, format!("#!/bin/sh\ntouch '{}'\n", marker.display())).unwrap();
+        fs::set_permissions(&other, fs::Permissions::from_mode(0o755)).unwrap();
+
+        let plugins = load_plugins(plugin_dir.path(), None);
+        let names: Vec<_> = plugins.iter().map(PluginProcess::name).collect();
+        assert_eq!(names, ["test"]);
+        assert!(!marker.exists());
+    }
+
+    #[test]
+    fn plugin_exits_when_stdin_closes() {
+        let mut child = Command::new(plugin_binary(TEST_HARNESS))
+            .stdin(Stdio::piped())
+            .stdout(Stdio::null())
+            .spawn()
+            .unwrap();
+        drop(child.stdin.take());
+
+        let deadline = Instant::now() + Duration::from_secs(5);
+        let status = loop {
+            if let Some(status) = child.try_wait().unwrap() {
+                break status;
+            }
+            assert!(Instant::now() < deadline, "plugin didn't exit on EOF");
+            std::thread::sleep(Duration::from_millis(10));
+        };
+        assert!(status.success());
+    }
+
+    #[test]
+    fn crashed_plugin_is_inapplicable_and_returns_nil() {
+        let dir = tempfile::tempdir().unwrap();
+        fs::write(dir.path().join(".starship-test-marker"), "").unwrap();
+        let context = render_context(dir.path());
+        let mut plugin = PluginProcess::spawn(&plugin_binary(TEST_HARNESS), None).unwrap();
+        assert!(plugin.is_applicable(&context));
+
+        plugin.child.kill().unwrap();
+        plugin.child.wait().unwrap();
+        assert!(!plugin.is_applicable(&context));
+        assert_eq!(
+            plugin.call_method(&context, "home"),
+            serde_json::Value::Null
+        );
     }
 
     #[test]

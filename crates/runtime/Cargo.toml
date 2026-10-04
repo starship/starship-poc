@@ -15,8 +15,6 @@ starship-common.workspace = true
 starship-plugin-core.workspace = true
 tempfile = { workspace = true, optional = true }
 tracing.workspace = true
-wasmtime.workspace = true
-which = "8.0.2"
 
 [features]
 testing = ["dep:tempfile"]

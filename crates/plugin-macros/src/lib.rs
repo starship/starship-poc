@@ -3,7 +3,7 @@ use proc_macro2::Ident;
 use quote::quote;
 use syn::{ImplItem, ItemImpl, Type, parse_macro_input};
 
-/// Exports a plugin impl block for WASM.
+/// Exports a plugin impl block and generates the plugin's `main`.
 ///
 /// The struct must implement `starship_plugin_sdk::Plugin`.
 /// Public methods in this impl block become callable from the config. Each
@@ -14,7 +14,7 @@ pub fn export_plugin(_attr: TokenStream, item: TokenStream) -> TokenStream {
     export(impl_block, &quote!(handle_plugin))
 }
 
-/// Exports a VCS plugin impl block for WASM.
+/// Exports a VCS plugin impl block and generates the plugin's `main`.
 ///
 /// The struct must implement `starship_plugin_sdk::VcsPlugin`. Applicability
 /// is derived from `detect_depth().is_some()`, so authors don't write a
@@ -26,8 +26,9 @@ pub fn export_vcs_plugin(_attr: TokenStream, item: TokenStream) -> TokenStream {
     export(impl_block, &quote!(handle_vcs_plugin))
 }
 
-/// Generates the method table and the single `_plugin_handle` export. The
-/// request handling itself lives in `starship_plugin_sdk::dispatch`.
+/// Generates the method table and a `main` that answers the daemon's
+/// requests. The request handling itself lives in
+/// `starship_plugin_sdk::dispatch`.
 fn export(mut impl_block: ItemImpl, handler: &proc_macro2::TokenStream) -> TokenStream {
     // Exported methods must take `&self` so the dispatcher can call them,
     // even when the plugin is stateless.
@@ -64,16 +65,11 @@ fn export(mut impl_block: ItemImpl, handler: &proc_macro2::TokenStream) -> Token
             }
         }
 
-        #[unsafe(no_mangle)]
-        pub extern "C" fn _plugin_handle(packed: u64) -> u64 {
-            ::std::thread_local! {
-                static PLUGIN: #struct_type = <#struct_type as ::core::default::Default>::default();
-            }
-            PLUGIN.with(|plugin| {
-                ::starship_plugin_sdk::dispatch::handle_packed(packed, |request| {
-                    ::starship_plugin_sdk::dispatch::#handler(plugin, request)
-                })
-            })
+        fn main() {
+            let plugin = <#struct_type as ::core::default::Default>::default();
+            ::starship_plugin_sdk::dispatch::serve(|request| {
+                ::starship_plugin_sdk::dispatch::#handler(&plugin, request)
+            });
         }
     })
 }

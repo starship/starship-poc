@@ -1,14 +1,17 @@
 //! Answers daemon requests on behalf of a plugin.
 //!
 //! `#[export_plugin]` and `#[export_vcs_plugin]` implement [`Methods`] for the
-//! plugin and generate a `_plugin_handle` export that forwards to
-//! [`handle_plugin`] or [`handle_vcs_plugin`]. Not part of the public API.
+//! plugin and generate a `main` that runs [`serve`] with [`handle_plugin`] or
+//! [`handle_vcs_plugin`]. Not part of the public API.
+
+use std::io::{self, BufRead, Write};
+use std::path::PathBuf;
 
 use serde::Serialize;
 use serde_json::Value;
-use starship_plugin_core::{ABI_VERSION, Manifest, PluginKind, Request, Response};
+use starship_plugin_core::{ABI_VERSION, Manifest, Message, PluginKind, Request, Response};
 
-use crate::{Ctx, Plugin, VcsPlugin};
+use crate::{Ctx, Plugin, VcsPlugin, exec_cache};
 
 /// The plugin-specific methods declared in an `#[export_plugin]` or
 /// `#[export_vcs_plugin]` impl block.
@@ -28,8 +31,8 @@ pub fn to_value<T: Serialize>(value: T) -> Value {
 /// Answers one request for a general plugin.
 pub fn handle_plugin<P: Plugin + Methods>(plugin: &P, request: Request) -> Response {
     match request {
-        Request::Describe => {
-            Response::Describe(manifest(P::NAME, PluginKind::General, &[], P::METHODS))
+        Request::Describe { cache_dir } => {
+            describe(cache_dir, P::NAME, PluginKind::General, &[], P::METHODS)
         }
         Request::IsApplicable { context } => {
             Response::IsApplicable(plugin.is_applicable(&Ctx::new(context)))
@@ -45,9 +48,9 @@ pub fn handle_plugin<P: Plugin + Methods>(plugin: &P, request: Request) -> Respo
 /// `detect_depth`, and `root` and `branch` route to the trait methods.
 pub fn handle_vcs_plugin<P: VcsPlugin + Methods>(plugin: &P, request: Request) -> Response {
     match request {
-        Request::Describe => {
+        Request::Describe { cache_dir } => {
             let methods = [&["root", "branch"], P::METHODS].concat();
-            Response::Describe(manifest(P::NAME, PluginKind::Vcs, P::SHADOWS, &methods))
+            describe(cache_dir, P::NAME, PluginKind::Vcs, P::SHADOWS, &methods)
         }
         Request::IsApplicable { context } => {
             Response::IsApplicable(plugin.detect_depth(&Ctx::new(context)).is_some())
@@ -66,21 +69,55 @@ pub fn handle_vcs_plugin<P: VcsPlugin + Methods>(plugin: &P, request: Request) -
     }
 }
 
-/// Decodes a request from guest memory, answers it with `handle`, and writes
-/// the response back. Called by the generated `_plugin_handle` export.
-pub fn handle_packed(packed: u64, handle: impl FnOnce(Request) -> Response) -> u64 {
-    // SAFETY: the host writes `packed` with `alloc` before calling `_plugin_handle`.
-    let request: Request = unsafe { starship_plugin_core::read_msg(packed) };
-    starship_plugin_core::write_msg(&handle(request))
+/// Answers requests from stdin on stdout until the daemon closes stdin.
+/// Called by the generated `main`.
+pub fn serve(mut handle: impl FnMut(Request) -> Response) {
+    let mut stdout = io::stdout().lock();
+    for line in io::stdin().lock().lines() {
+        let Ok(line) = line else {
+            break;
+        };
+        let request: Message<Request> = match serde_json::from_str(&line) {
+            Ok(request) => request,
+            Err(error) => {
+                eprintln!("ignoring malformed request: {error}");
+                continue;
+            }
+        };
+        let response = Message {
+            id: request.id,
+            body: handle(request.body),
+        };
+        if write_line(&mut stdout, &response).is_err() {
+            break;
+        }
+    }
 }
 
-fn manifest(name: &str, kind: PluginKind, shadows: &[&str], methods: &[&str]) -> Manifest {
+fn write_line(out: &mut impl Write, message: &Message<Response>) -> io::Result<()> {
+    serde_json::to_writer(&mut *out, message)?;
+    out.write_all(b"\n")?;
+    out.flush()
+}
+
+/// Starts the exec cache under the daemon's cache directory and reports the
+/// plugin's manifest.
+fn describe(
+    cache_dir: Option<PathBuf>,
+    name: &str,
+    kind: PluginKind,
+    shadows: &[&str],
+    methods: &[&str],
+) -> Response {
+    if let Some(dir) = cache_dir {
+        exec_cache::init(dir.join(name).join("exec_cache.json"));
+    }
     let owned = |names: &[&str]| names.iter().map(ToString::to_string).collect();
-    Manifest {
+    Response::Describe(Manifest {
         abi_version: ABI_VERSION,
         name: name.to_string(),
         kind,
         shadows: owned(shadows),
         methods: owned(methods),
-    }
+    })
 }

@@ -9,5 +9,3 @@ impl BadPlugin {
         "hello"
     }
 }
-
-fn main() {}

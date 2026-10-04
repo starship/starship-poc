@@ -9,6 +9,10 @@ serde.workspace = true
 serde_json.workspace = true
 starship-plugin-core.workspace = true
 starship-plugin-macros.workspace = true
+which = "8.0.2"
+
+[dev-dependencies]
+tempfile.workspace = true
 
 [lints]
 workspace = true

@@ -1,7 +1,6 @@
 use crate::config::nerd_font::register_icon_function;
 use crate::config::style::{LuaStyledContent, register_compact_function, register_style_functions};
-use crate::exec_cache::ExecCache;
-use crate::plugin::{RenderState, WasmPlugin, create_engine, load_plugins, register_plugin};
+use crate::plugin::{PluginProcess, RenderState, load_plugins, register_plugin};
 use anyhow::Result;
 use mlua::{FromLua, Lua, LuaOptions, LuaSerdeExt, SerializeOptions, StdLib};
 use serde::{Deserialize, Serialize};
@@ -65,9 +64,8 @@ impl ConfigLoader {
     }
 
     pub fn from_path(path: impl Into<PathBuf>) -> Result<Self> {
-        let exec_cache = Rc::new(create_exec_cache());
-        let engine = create_engine()?;
-        let plugins = load_plugins(&engine, &get_plugin_dir(), &exec_cache);
+        let cache_dir = get_plugin_cache_dir();
+        let plugins = load_plugins(&get_plugin_dir(), cache_dir.as_deref());
         let lua = create_lua()?;
         let render = register_plugins(&lua, plugins)?;
         let config_env = create_config_env(&lua)?;
@@ -87,7 +85,7 @@ impl ConfigLoader {
         Self::from_source_with_plugins(source, vec![])
     }
 
-    pub fn from_source_with_plugins(source: &str, plugins: Vec<WasmPlugin>) -> Result<Self> {
+    pub fn from_source_with_plugins(source: &str, plugins: Vec<PluginProcess>) -> Result<Self> {
         let lua = create_lua()?;
         let render = register_plugins(&lua, plugins)?;
         let config_env = create_config_env(&lua)?;
@@ -171,7 +169,7 @@ impl ConfigLoader {
 }
 
 /// Registers each plugin as a Lua global, all sharing one render state.
-fn register_plugins(lua: &Lua, plugins: Vec<WasmPlugin>) -> Result<Rc<RefCell<RenderState>>> {
+fn register_plugins(lua: &Lua, plugins: Vec<PluginProcess>) -> Result<Rc<RefCell<RenderState>>> {
     let render = Rc::new(RefCell::new(RenderState::default()));
     for plugin in plugins {
         register_plugin(lua, Rc::new(RefCell::new(plugin)), Rc::clone(&render))?;
@@ -234,14 +232,14 @@ fn get_plugin_dir() -> PathBuf {
     )
 }
 
-fn create_exec_cache() -> ExecCache {
-    get_cache_dir().map_or_else(
-        |_| {
-            tracing::warn!("failed to resolve cache dir, exec cache will be in-memory only");
-            ExecCache::in_memory()
-        },
-        |dir| ExecCache::load(dir.join("exec_cache.json")),
-    )
+/// Where plugins keep caches across daemon restarts, each in a subdirectory
+/// named after itself. `None` keeps plugin caches in memory.
+fn get_plugin_cache_dir() -> Option<PathBuf> {
+    let Ok(dir) = get_cache_dir() else {
+        tracing::warn!("failed to resolve cache dir, plugin caches will be in-memory only");
+        return None;
+    };
+    Some(dir.join("plugins"))
 }
 
 /// Gets the path to the config file.

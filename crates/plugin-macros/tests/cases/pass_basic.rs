@@ -21,5 +21,3 @@ impl TestPlugin {
         ctx.pwd().display().to_string()
     }
 }
-
-fn main() {}

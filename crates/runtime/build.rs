@@ -35,6 +35,8 @@ fn build_icons() {
     .unwrap();
 }
 
+/// Builds the workspace plugins as native executables for the runtime's
+/// tests and benches, which find them through `PLUGIN_BIN_DIR`.
 fn build_test_plugins() {
     println!("cargo::rerun-if-changed=../../plugins/test-harness/src");
     println!("cargo::rerun-if-changed=../../plugins/test-harness/Cargo.toml");
@@ -55,12 +57,16 @@ fn build_test_plugins() {
         .parent()
         .and_then(|p| p.parent())
         .expect("workspace root");
-    let wasm_target_dir = workspace_root.join("target/wasm-plugins");
-    let wasm_release_dir = wasm_target_dir.join("wasm32-unknown-unknown/release");
-
+    let plugin_target_dir = workspace_root.join("target/plugins");
+    // Match the outer build's profile, so benches measure optimized plugins.
+    let profile = if env::var("PROFILE").is_ok_and(|p| p == "release") {
+        "release"
+    } else {
+        "debug"
+    };
     println!(
-        "cargo::rustc-env=WASM_PLUGIN_DIR={}",
-        wasm_release_dir.display()
+        "cargo::rustc-env=PLUGIN_BIN_DIR={}",
+        plugin_target_dir.join(profile).display()
     );
 
     for plugin in [
@@ -69,22 +75,12 @@ fn build_test_plugins() {
         "starship-plugin-vcs-test-harness",
     ] {
         let status = Command::new(&cargo)
-            .args([
-                "build",
-                "-p",
-                plugin,
-                "--target",
-                "wasm32-unknown-unknown",
-                "--release",
-                "--target-dir",
-            ])
-            .arg(&wasm_target_dir)
+            .args(["build", "-p", plugin, "--target-dir"])
+            .arg(&plugin_target_dir)
+            .args((profile == "release").then_some("--release"))
             .status()
             .unwrap_or_else(|e| panic!("failed to run cargo build for {plugin}: {e}"));
 
-        assert!(
-            status.success(),
-            "failed to compile {plugin} to wasm32-unknown-unknown"
-        );
+        assert!(status.success(), "failed to build {plugin}");
     }
 }

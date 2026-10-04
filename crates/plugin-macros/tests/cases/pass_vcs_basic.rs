@@ -26,5 +26,3 @@ impl StubVcs {
         Some("extra".to_string())
     }
 }
-
-fn main() {}

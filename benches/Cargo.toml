@@ -13,7 +13,6 @@ starship-common.workspace = true
 starship-daemon.workspace = true
 starship-runtime = { workspace = true, features = ["testing"] }
 tempfile.workspace = true
-wasmtime.workspace = true
 
 [[bench]]
 name = "starship_bench"

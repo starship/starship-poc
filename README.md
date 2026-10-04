@@ -37,10 +37,11 @@ return compact(rootUsername, ctx.pwd, git.branch, "❯")
 
 ## Contributing
 
-1. Run the daemon. Building the runtime also compiles the workspace plugins, and `STARSHIP_PLUGIN_DIR` points the daemon at them (it defaults to `~/.config/starship/plugins`):
+1. Build the workspace, which includes the plugins, then run the daemon. `STARSHIP_PLUGIN_DIR` points it at the built `starship-plugin-*` executables (it defaults to `~/.config/starship/plugins`):
 
 ```
-STARSHIP_PLUGIN_DIR=target/wasm-plugins/wasm32-unknown-unknown/release cargo run --release -p starship-daemon
+cargo build --release --workspace
+STARSHIP_PLUGIN_DIR=target/release cargo run --release -p starship-daemon
 ```
 
 2. Then run the prompt:

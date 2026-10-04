@@ -1,22 +1,24 @@
-//! SDK for building Starship WASM plugins.
+//! SDK for building Starship plugins.
+//!
+//! A plugin is a binary crate: implement [`Plugin`] or [`VcsPlugin`], then
+//! annotate an inherent impl block with `#[export_plugin]` or
+//! `#[export_vcs_plugin]`. The macro generates `main`, which answers the
+//! daemon's requests over stdin and stdout.
 
 pub use serde_json;
-// The host calls `alloc` and `dealloc` to pass bytes into the plugin, so they
-// must be linked into every plugin binary.
-pub use starship_plugin_core::{alloc, dealloc};
 pub use starship_plugin_macros::{export_plugin, export_vcs_plugin};
 
 mod ctx;
 #[doc(hidden)]
 pub mod dispatch;
-mod host;
+mod exec_cache;
 
 pub use ctx::Ctx;
 
 /// Required contract for all Starship plugins.
 ///
 /// Provides the plugin's identity and applicability logic. The `#[export_plugin]`
-/// macro references this trait to generate WASM exports, so failing to
+/// macro references this trait to generate the plugin's `main`, so failing to
 /// implement it is a compile error.
 ///
 /// Plugin-specific methods go in a separate `#[export_plugin] impl` block.
@@ -36,7 +38,7 @@ pub trait Plugin: Default {
 ///
 /// Implement this trait when adding a new VCS (git, jj, hg, ...). Pair it with
 /// an inherent `impl` block annotated `#[export_vcs_plugin]` to generate the
-/// WASM exports the daemon expects. Per-VCS methods (e.g. `jj.change_id`) go
+/// plugin's `main`. Per-VCS methods (e.g. `jj.change_id`) go
 /// in that inherent block.
 pub trait VcsPlugin: Default {
     /// Unique identifier for the plugin.
