@@ -1,6 +1,6 @@
 # Plugins are native processes exchanging shared Rust message types
 
-Each plugin is a separately built native executable. The daemon spawns one long-lived process per plugin and exchanges newline-delimited JSON messages with it over stdin and stdout. The messages (`Request`/`Response` and the `Manifest`) live in `plugin-core`, which both the daemon and the SDK compile against, so the contract can't drift between them. Each request carries the render context (the shell's pwd and environment), and the plugin reads files and runs commands itself.
+Each plugin is a separately built native executable. The daemon spawns one long-lived process per plugin and exchanges newline-delimited JSON messages with it over stdin and stdout. The messages (`Request`/`Response` and the `Manifest`) live in `plugin-core`, which both the daemon and the SDK compile against, so the contract can't drift between them. Each render begins with one `BeginRender` per plugin carrying the render context (the shell's pwd and environment); later requests in that render refer to it by render ID, and `EndRender` lets the plugin drop it. The plugin reads files and runs commands itself.
 
 We chose processes over WASM because WASM bought less than it cost:
 
@@ -12,8 +12,9 @@ We chose processes over WASM because WASM bought less than it cost:
 
 - Plugins are trusted code. Nothing isolates a plugin from the user's files or network. OS-level sandboxing (Seatbelt, Landlock) is possible later.
 - No host calls. Plugins never call back into the daemon in the middle of a request, so each exchange is one request and one response.
+- The context goes over the pipe once per render, not with every field read; resending a 9 KB environment per request measured 4× the cost of an empty one.
 - Every message carries a request ID, so the daemon can send several requests to the same plugin without waiting (concurrent renders, prefetching) and match responses as they arrive.
-- Plugins handle requests concurrently. The SDK requires plugins to be `Sync`. Every path comes from the request's render context, never the process cwd, because two concurrent requests can have different pwds.
+- Plugins handle requests concurrently. The SDK requires plugins to be `Sync`. Every path comes from the render's context, never the process cwd, because two concurrent renders can have different pwds.
 - Processes start eagerly when the daemon starts, and their `Describe` requests are sent in parallel, because the Lua globals need every manifest. The manifest declares the plugin's name, `kind` (`General` or `Vcs`), `shadows`, methods and `abi_version`. A plugin that fails `Describe` or reports a different `abi_version` is logged and skipped; there's no compatibility range.
 - `shadows` is a general list every plugin carries (empty by default), separate from `kind`, so it can later express supersession among non-VCS plugins too, e.g. deno or bun over nodejs.
 - A plugin request that fails, times out or returns the wrong variant makes that plugin inapplicable for the render, and its methods return nil.

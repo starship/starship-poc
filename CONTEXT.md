@@ -8,8 +8,12 @@ Rust rewrite of Starship structured around plugins that run as separate processe
 A separately built executable that speaks the plugin protocol and exposes data to the prompt config (e.g. `nodejs.version`). Has a unique `NAME`, an `is_applicable()` gate, and a set of exported methods.
 _Avoid_: module (Starship's word for a configured prompt segment), extension, provider
 
+**Render**:
+One evaluation of the config for one prompt, identified by a render ID. A plugin sees a render from `BeginRender` to `EndRender`.
+_Avoid_: session, frame
+
 **Render context**:
-The snapshot of the shell's state for one render (pwd and environment) that accompanies every request to a plugin. Plugins read pwd and environment from it, never from their own process.
+The shell's state (pwd and environment) for one render, sent to each plugin once when the render begins. Plugins read pwd and environment from it, never from their own process.
 _Avoid_: shell context
 
 **VCS plugin**:
