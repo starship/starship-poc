@@ -1,5 +1,6 @@
 use std::cell::RefCell;
-use std::path::{Path, PathBuf};
+use std::collections::HashMap;
+use std::path::Path;
 use std::rc::Rc;
 
 use anyhow::{Context, Result, bail, ensure};
@@ -8,8 +9,8 @@ use serde::Serialize;
 use serde::de::DeserializeOwned;
 use serde_json::Value;
 use starship_plugin_core::{
-    ABI_VERSION, HostRequest, HostResponse, Manifest, PluginKind, Request, Response, from_bitwise,
-    into_bitwise,
+    ABI_VERSION, HostRequest, HostResponse, Manifest, PluginKind, RenderContext, Request, Response,
+    from_bitwise, into_bitwise,
 };
 use tracing::instrument;
 use wasmtime::{AsContextMut, Cache, Caller, Engine, Linker, Memory, Module, Store, TypedFunc};
@@ -28,9 +29,8 @@ pub fn create_engine() -> Result<Engine> {
     Ok(Engine::new(&config)?)
 }
 
-/// What the host knows while answering a plugin's [`HostRequest`]s.
+/// What the host needs to answer a plugin's [`HostRequest`]s.
 struct HostState {
-    pwd: PathBuf,
     exec_cache: Rc<ExecCache>,
     /// Set right after instantiation, before any request can arrive.
     guest: Option<GuestMemory>,
@@ -39,23 +39,23 @@ struct HostState {
 impl HostState {
     fn respond(&self, request: HostRequest) -> HostResponse {
         match request {
-            HostRequest::Env { name } => HostResponse::Env(std::env::var(name).ok()),
-            HostRequest::Exec { cmd, args, cached } => {
-                HostResponse::Exec(self.exec(&cmd, &args, cached))
-            }
-            HostRequest::FileExists { path } => {
-                HostResponse::FileExists(self.pwd.join(path).exists())
-            }
+            HostRequest::Exec {
+                cmd,
+                args,
+                cwd,
+                cached,
+            } => HostResponse::Exec(self.exec(&cmd, &args, &cwd, cached)),
+            HostRequest::FileExists { path } => HostResponse::FileExists(path.exists()),
         }
     }
 
     #[instrument(skip(self, args))]
-    fn exec(&self, cmd: &str, args: &[String], cached: bool) -> Option<String> {
+    fn exec(&self, cmd: &str, args: &[String], cwd: &Path, cached: bool) -> Option<String> {
         if cached && let Some(output) = self.exec_cache.get(cmd, args) {
             tracing::debug!("cache hit");
             return Some(output);
         }
-        let output = run_command(cmd, args, &self.pwd)?;
+        let output = run_command(cmd, args, cwd)?;
         if cached {
             self.exec_cache.insert(cmd, args, output.clone());
         }
@@ -116,13 +116,6 @@ fn host_handle(mut caller: Caller<'_, HostState>, packed: u64) -> Result<u64> {
     guest.write(&mut caller, &response)
 }
 
-/// Results cached for the duration of one render. Cleared by
-/// [`WasmPlugin::begin_render`].
-#[derive(Default)]
-struct RenderState {
-    is_applicable: Option<bool>,
-}
-
 /// A loaded WASM plugin instance backed by wasmtime.
 ///
 /// All communication goes through the plugin's `_plugin_handle` export using
@@ -133,24 +126,18 @@ pub struct WasmPlugin {
     guest: GuestMemory,
     handle: TypedFunc<u64, u64>,
     manifest: Manifest,
-    render: RenderState,
 }
 
 impl WasmPlugin {
     /// Compiles and instantiates a plugin from WASM bytes.
-    pub fn load(
-        engine: &Engine,
-        wasm_bytes: &[u8],
-        pwd: &Path,
-        exec_cache: Rc<ExecCache>,
-    ) -> Result<Self> {
+    pub fn load(engine: &Engine, wasm_bytes: &[u8], exec_cache: Rc<ExecCache>) -> Result<Self> {
         let module = tracing::info_span!("compile").in_scope(|| Module::new(engine, wasm_bytes))?;
-        Self::from_module(&module, pwd, exec_cache)
+        Self::from_module(&module, exec_cache)
     }
 
     /// Creates a plugin instance from a pre-compiled module, skipping WASM
     /// compilation. Use when instantiating the same plugin multiple times.
-    pub fn from_module(module: &Module, pwd: &Path, exec_cache: Rc<ExecCache>) -> Result<Self> {
+    pub fn from_module(module: &Module, exec_cache: Rc<ExecCache>) -> Result<Self> {
         let engine = module.engine();
         let mut linker = Linker::new(engine);
         linker.func_wrap(
@@ -164,7 +151,6 @@ impl WasmPlugin {
         let mut store = Store::new(
             engine,
             HostState {
-                pwd: pwd.to_path_buf(),
                 exec_cache,
                 guest: None,
             },
@@ -199,7 +185,6 @@ impl WasmPlugin {
             guest,
             handle,
             manifest,
-            render: RenderState::default(),
         })
     }
 
@@ -216,33 +201,23 @@ impl WasmPlugin {
         &self.manifest.shadows
     }
 
-    /// Starts a new render: points host requests at `pwd` and clears the
-    /// results cached for the previous render.
-    pub fn begin_render(&mut self, pwd: &Path) {
-        self.store.data_mut().pwd = pwd.to_path_buf();
-        self.render = RenderState::default();
-    }
-
-    /// Whether the plugin applies to the current render. Cached until the
-    /// next [`begin_render`](Self::begin_render). A failing plugin is treated
-    /// as inapplicable.
+    /// Whether the plugin applies to the render described by `context`. A
+    /// failing plugin is treated as inapplicable.
     #[instrument(skip_all, fields(plugin = %self.manifest.name))]
-    pub fn is_applicable(&mut self) -> bool {
-        if let Some(cached) = self.render.is_applicable {
-            return cached;
-        }
-        let applicable = match self.send(&Request::IsApplicable) {
-            Some(Response::IsApplicable(applicable)) => applicable,
-            _ => false,
+    pub fn is_applicable(&mut self, context: &RenderContext) -> bool {
+        let request = Request::IsApplicable {
+            context: context.clone(),
         };
-        self.render.is_applicable = Some(applicable);
-        applicable
+        matches!(self.send(&request), Some(Response::IsApplicable(true)))
     }
 
-    /// Distance from the working directory to the plugin's VCS sentinel.
-    /// `None` for general plugins and VCS plugins that don't detect here.
-    pub fn detect_depth(&mut self) -> Option<u32> {
-        match self.send(&Request::DetectDepth)? {
+    /// Distance from the render's pwd to the plugin's VCS sentinel. `None`
+    /// for general plugins and VCS plugins that don't detect here.
+    pub fn detect_depth(&mut self, context: &RenderContext) -> Option<u32> {
+        let request = Request::DetectDepth {
+            context: context.clone(),
+        };
+        match self.send(&request)? {
             Response::DetectDepth(depth) => depth,
             _ => None,
         }
@@ -250,13 +225,14 @@ impl WasmPlugin {
 
     /// Calls a method from the plugin's manifest. Returns `Null` for unknown
     /// methods and for failures, which are logged.
-    #[instrument(skip(self), fields(plugin = %self.manifest.name))]
-    pub fn call_method(&mut self, method: &str) -> Value {
+    #[instrument(skip(self, context), fields(plugin = %self.manifest.name))]
+    pub fn call_method(&mut self, context: &RenderContext, method: &str) -> Value {
         if !self.manifest.methods.iter().any(|m| m == method) {
             return Value::Null;
         }
         let request = Request::Call {
             method: method.to_string(),
+            context: context.clone(),
         };
         match self.send(&request) {
             Some(Response::Call(value)) => value,
@@ -287,12 +263,34 @@ fn exchange(
     guest.read(&mut *store, result)
 }
 
+/// The render in progress, shared by every plugin's Lua proxy.
+#[derive(Default)]
+pub struct RenderState {
+    context: RenderContext,
+    /// Each plugin's applicability, asked at most once per render.
+    applicable: HashMap<String, bool>,
+}
+
+impl RenderState {
+    /// Starts a new render, forgetting everything from the previous one.
+    pub fn begin(&mut self, context: RenderContext) {
+        self.context = context;
+        self.applicable.clear();
+    }
+}
+
 /// Registers a plugin as a Lua global with an `__index` metamethod.
 ///
-/// Accessing `plugin_name.field` in Lua calls the plugin method of that name.
-/// Skips registration (with a warning) if the name collides with an existing global.
-pub fn register_plugin(lua: &Lua, plugin: Rc<RefCell<WasmPlugin>>) -> mlua::Result<()> {
+/// Accessing `plugin_name.field` in Lua calls the plugin method of that name
+/// for the render in `render`. Skips registration (with a warning) if the name
+/// collides with an existing global.
+pub fn register_plugin(
+    lua: &Lua,
+    plugin: Rc<RefCell<WasmPlugin>>,
+    render: Rc<RefCell<RenderState>>,
+) -> mlua::Result<()> {
     let name = plugin.borrow().name().to_string();
+    let lua_name = name.clone();
 
     if lua.globals().contains_key(name.as_str())? {
         tracing::warn!(plugin = %name, "plugin name collides with an existing Lua global, skipping");
@@ -306,15 +304,23 @@ pub fn register_plugin(lua: &Lua, plugin: Rc<RefCell<WasmPlugin>>) -> mlua::Resu
         "__index",
         lua.create_function(move |lua, (_table, key): (Table, String)| {
             let mut plugin = plugin.borrow_mut();
-            if !plugin.is_applicable() {
+            let mut render = render.borrow_mut();
+            let RenderState {
+                context,
+                applicable,
+            } = &mut *render;
+            let is_applicable = *applicable
+                .entry(name.clone())
+                .or_insert_with(|| plugin.is_applicable(context));
+            if !is_applicable {
                 return Ok(mlua::Value::Nil);
             }
-            lua.to_value(&plugin.call_method(&key))
+            lua.to_value(&plugin.call_method(context, &key))
         })?,
     )?;
 
     proxy.set_metatable(Some(meta))?;
-    lua.globals().set(name.as_str(), proxy)?;
+    lua.globals().set(lua_name, proxy)?;
     Ok(())
 }
 
@@ -322,11 +328,10 @@ pub fn register_plugin(lua: &Lua, plugin: Rc<RefCell<WasmPlugin>>) -> mlua::Resu
 ///
 /// Returns an empty vec if the directory doesn't exist. Logs and skips
 /// individual plugins that fail to load.
-#[instrument(skip(engine, pwd, exec_cache))]
+#[instrument(skip(engine, exec_cache))]
 pub fn load_plugins(
     engine: &Engine,
     plugin_dir: &Path,
-    pwd: &Path,
     exec_cache: &Rc<ExecCache>,
 ) -> Vec<WasmPlugin> {
     let Ok(entries) = std::fs::read_dir(plugin_dir) else {
@@ -343,7 +348,7 @@ pub fn load_plugins(
                 plugin = %path.file_stem().unwrap_or_default().to_string_lossy(),
             )
             .entered();
-            WasmPlugin::load(engine, &bytes, pwd, Rc::clone(exec_cache))
+            WasmPlugin::load(engine, &bytes, Rc::clone(exec_cache))
                 .inspect_err(|error| {
                     tracing::error!(path = %path.display(), %error, "failed to load plugin");
                 })
@@ -354,9 +359,10 @@ pub fn load_plugins(
 
 #[cfg(any(test, feature = "testing"))]
 pub mod test_helpers {
-    use std::path::PathBuf;
+    use std::path::{Path, PathBuf};
     use std::rc::Rc;
 
+    use starship_plugin_core::RenderContext;
     use wasmtime::Module;
 
     use super::{WasmPlugin, create_engine};
@@ -377,7 +383,15 @@ pub mod test_helpers {
         "/starship_plugin_vcs_test_harness.wasm"
     ));
 
-    /// A plugin loaded against its own temporary working directory.
+    /// A render context for `pwd` with the test process's environment.
+    pub fn render_context(pwd: &Path) -> RenderContext {
+        RenderContext {
+            pwd: pwd.to_path_buf(),
+            env: std::env::vars().collect(),
+        }
+    }
+
+    /// A loaded plugin, rendering in its own temporary working directory.
     pub struct PluginFixture {
         pub dir: PathBuf,
         plugin: WasmPlugin,
@@ -386,7 +400,7 @@ pub mod test_helpers {
     }
 
     impl PluginFixture {
-        /// The general test plugin (`test`), which exercises every host function.
+        /// The general test plugin (`test`), which exercises every `Ctx` helper.
         pub fn test_harness() -> Self {
             Self::from_wasm(TEST_HARNESS_WASM)
         }
@@ -398,25 +412,31 @@ pub mod test_helpers {
 
         pub fn from_wasm(bytes: &[u8]) -> Self {
             let dir = tempfile::TempDir::new().expect("tempdir");
-            let path = dir.path().to_path_buf();
             let engine = create_engine().expect("engine should build");
             let module = Module::new(&engine, bytes).expect("plugin should compile");
-            let cache = Rc::new(ExecCache::in_memory());
-            let plugin =
-                WasmPlugin::from_module(&module, &path, cache).expect("plugin should load");
+            let plugin = WasmPlugin::from_module(&module, Rc::new(ExecCache::in_memory()))
+                .expect("plugin should load");
             Self {
-                dir: path,
+                dir: dir.path().to_path_buf(),
                 plugin,
                 module,
                 _tempdir: dir,
             }
         }
 
-        /// Calls a method in a fresh render, returning strings as-is and
-        /// other values as JSON.
+        fn context(&self) -> RenderContext {
+            render_context(&self.dir)
+        }
+
+        /// Calls a method for a render in [`dir`](Self::dir), returning
+        /// strings as-is and other values as JSON.
         pub fn get(&mut self, method: &str) -> Option<String> {
-            self.plugin.begin_render(&self.dir.clone());
-            match self.plugin.call_method(method) {
+            self.get_in(&self.context(), method)
+        }
+
+        /// Calls a method for the render described by `context`.
+        pub fn get_in(&mut self, context: &RenderContext, method: &str) -> Option<String> {
+            match self.plugin.call_method(context, method) {
                 serde_json::Value::Null => None,
                 serde_json::Value::String(s) => Some(s),
                 other => Some(other.to_string()),
@@ -424,8 +444,8 @@ pub mod test_helpers {
         }
 
         pub fn is_applicable(&mut self) -> bool {
-            self.plugin.begin_render(&self.dir.clone());
-            self.plugin.is_applicable()
+            let context = self.context();
+            self.plugin.is_applicable(&context)
         }
 
         pub fn kind(&self) -> starship_plugin_core::PluginKind {
@@ -437,8 +457,8 @@ pub mod test_helpers {
         }
 
         pub fn detect_depth(&mut self) -> Option<u32> {
-            self.plugin.begin_render(&self.dir.clone());
-            self.plugin.detect_depth()
+            let context = self.context();
+            self.plugin.detect_depth(&context)
         }
 
         pub fn name(&self) -> &str {
@@ -451,21 +471,18 @@ pub mod test_helpers {
             use starship_common::ShellContext;
 
             let lua_src = format!(r"return {lua_expr}");
-            let mut loader =
-                ConfigLoader::from_source_with_plugins(&lua_src, vec![self.plugin_for_loader()])
-                    .expect("loader should build");
+            let plugin = WasmPlugin::from_module(&self.module, Rc::new(ExecCache::in_memory()))
+                .expect("plugin should load");
+            let mut loader = ConfigLoader::from_source_with_plugins(&lua_src, vec![plugin])
+                .expect("loader should build");
             let ctx = ShellContext {
                 pwd: Some(self.dir.clone()),
                 user: Some("test".into()),
+                env: std::env::vars().collect(),
             };
             let func = loader.load(&ctx).expect("config should load");
             let output: Config = func.call(()).expect("lua should evaluate");
             output.format.to_string()
-        }
-
-        fn plugin_for_loader(&self) -> WasmPlugin {
-            let cache = Rc::new(ExecCache::in_memory());
-            WasmPlugin::from_module(&self.module, &self.dir, cache).expect("plugin should load")
         }
     }
 }
@@ -478,7 +495,7 @@ mod tests {
     use mlua::{Lua, LuaOptions, StdLib};
     use starship_plugin_core::{HostRequest, HostResponse};
 
-    use super::test_helpers::PluginFixture;
+    use super::test_helpers::{PluginFixture, render_context};
     use super::{HostState, PluginKind, create_engine, load_plugins};
     use crate::exec_cache::ExecCache;
 
@@ -503,17 +520,16 @@ mod tests {
     }
 
     #[test]
-    fn host_answers_file_exists_relative_to_pwd() {
+    fn host_answers_file_exists_for_absolute_paths() {
         let dir = tempfile::tempdir().unwrap();
         fs::write(dir.path().join("present"), "").unwrap();
         let state = HostState {
-            pwd: dir.path().to_path_buf(),
             exec_cache: Rc::new(ExecCache::in_memory()),
             guest: None,
         };
-        let exists = |path: &str| {
+        let exists = |name: &str| {
             state.respond(HostRequest::FileExists {
-                path: path.to_string(),
+                path: dir.path().join(name),
             })
         };
         assert_eq!(exists("present"), HostResponse::FileExists(true));
@@ -534,27 +550,43 @@ mod tests {
 
     #[test]
     fn load_plugins_empty_dir_returns_empty_vec() {
-        let dir = tempfile::tempdir().expect("tempdir");
         let plugin_dir = tempfile::tempdir().expect("plugin dir");
         let engine = create_engine().unwrap();
         let cache = Rc::new(ExecCache::in_memory());
-        let plugins = load_plugins(&engine, plugin_dir.path(), dir.path(), &cache);
+        let plugins = load_plugins(&engine, plugin_dir.path(), &cache);
         assert!(plugins.is_empty());
     }
 
     #[test]
-    fn host_get_env() {
+    fn plugin_reads_env_from_render_context() {
         let mut plugin = PluginFixture::test_harness();
-        assert!(plugin.get("home").is_some());
+        let mut context = render_context(&plugin.dir);
+        context.env.insert("HOME".into(), "/home/from-shell".into());
+        assert_eq!(
+            plugin.get_in(&context, "home").as_deref(),
+            Some("/home/from-shell")
+        );
+
+        context.env.remove("HOME");
+        assert_eq!(plugin.get_in(&context, "home"), None);
     }
 
     #[test]
-    fn host_exec() {
+    fn requests_use_their_own_render_context() {
         let mut plugin = PluginFixture::test_harness();
-        let pwd = plugin.get("pwd").expect("pwd should return a string");
-        let actual = std::fs::canonicalize(&pwd).expect("pwd output resolves");
-        let expected = std::fs::canonicalize(&plugin.dir).expect("tempdir path resolves");
-        assert_eq!(actual, expected);
+        let other = tempfile::tempdir().unwrap();
+        let pwd_in = |plugin: &mut PluginFixture, dir: &std::path::Path| {
+            let output = plugin
+                .get_in(&render_context(dir), "pwd")
+                .expect("pwd output");
+            fs::canonicalize(output).unwrap()
+        };
+
+        let dir = plugin.dir.clone();
+        let first = pwd_in(&mut plugin, &dir);
+        let second = pwd_in(&mut plugin, other.path());
+        assert_eq!(first, fs::canonicalize(&plugin.dir).unwrap());
+        assert_eq!(second, fs::canonicalize(other.path()).unwrap());
     }
 
     #[test]

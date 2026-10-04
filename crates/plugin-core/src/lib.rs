@@ -11,5 +11,5 @@ pub mod protocol;
 pub use bitwise::{from_bitwise, into_bitwise};
 pub use guest::{alloc, dealloc, read_msg, write_msg};
 pub use protocol::{
-    ABI_VERSION, HostRequest, HostResponse, Manifest, PluginKind, Request, Response,
+    ABI_VERSION, HostRequest, HostResponse, Manifest, PluginKind, RenderContext, Request, Response,
 };

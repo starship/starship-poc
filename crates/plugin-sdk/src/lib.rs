@@ -6,9 +6,12 @@ pub use serde_json;
 pub use starship_plugin_core::{alloc, dealloc};
 pub use starship_plugin_macros::{export_plugin, export_vcs_plugin};
 
+mod ctx;
 #[doc(hidden)]
 pub mod dispatch;
-pub mod host;
+mod host;
+
+pub use ctx::Ctx;
 
 /// Required contract for all Starship plugins.
 ///
@@ -17,15 +20,16 @@ pub mod host;
 /// implement it is a compile error.
 ///
 /// Plugin-specific methods go in a separate `#[export_plugin] impl` block.
+/// Each takes `&self` and may also take `ctx: &Ctx`.
 pub trait Plugin: Default {
     /// Unique identifier for the plugin.
     const NAME: &str;
 
-    /// Whether the plugin is active for the current context.
+    /// Whether the plugin applies to this render.
     ///
     /// Typically checks whether the package's relevant config files
-    /// (e.g. `package.json`, `Cargo.toml`) are present in the repo root.
-    fn is_applicable(&self) -> bool;
+    /// (e.g. `package.json`, `Cargo.toml`) are present.
+    fn is_applicable(&self, ctx: &Ctx) -> bool;
 }
 
 /// A version control system backend, exposed as a plugin.
@@ -41,15 +45,15 @@ pub trait VcsPlugin: Default {
     /// VCSes this one supersedes when colocated, e.g. `&["git"]` on jj.
     const SHADOWS: &'static [&'static str] = &[];
 
-    /// Distance from `pwd` to the nearest sentinel (e.g. `.git`, `.jj`),
-    /// where `0` means the sentinel is in `pwd` itself. `None` if no
+    /// Distance from `ctx.pwd()` to the nearest sentinel (e.g. `.git`,
+    /// `.jj`), where `0` means the sentinel is in pwd itself. `None` if no
     /// sentinel is found up to the filesystem root.
-    fn detect_depth(&self) -> Option<u32>;
+    fn detect_depth(&self, ctx: &Ctx) -> Option<u32>;
 
     /// Canonical project root path from the underlying VCS, or `None`
     /// when not derivable (bare repos, edge cases).
-    fn root(&self) -> Option<String>;
+    fn root(&self, ctx: &Ctx) -> Option<String>;
 
     /// Current branch name, or `None` for detached HEAD or failure.
-    fn branch(&self) -> Option<String>;
+    fn branch(&self, ctx: &Ctx) -> Option<String>;
 }

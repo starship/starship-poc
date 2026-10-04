@@ -9,24 +9,41 @@
 //! Bump [`ABI_VERSION`] on any breaking change to these types. The host
 //! refuses to load plugins built against a different version.
 
+use std::collections::HashMap;
+use std::path::PathBuf;
+
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 /// Version of the plugin protocol. Plugins report it in their [`Manifest`].
-pub const ABI_VERSION: u32 = 1;
+pub const ABI_VERSION: u32 = 2;
+
+/// The shell's state for one render, sent with every request that does
+/// plugin work. Plugins read pwd and environment from here, never from their
+/// own process.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RenderContext {
+    /// The shell's working directory.
+    pub pwd: PathBuf,
+    /// The shell's environment variables.
+    pub env: HashMap<String, String>,
+}
 
 /// A message from the host to a plugin.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Request {
     /// Ask for the plugin's [`Manifest`]. Sent once, at load.
     Describe,
-    /// Ask whether the plugin applies to the current render.
-    IsApplicable,
+    /// Ask whether the plugin applies to this render.
+    IsApplicable { context: RenderContext },
     /// Ask a VCS plugin for its distance to the nearest sentinel. General
     /// plugins answer `None`.
-    DetectDepth,
+    DetectDepth { context: RenderContext },
     /// Call a method listed in the plugin's [`Manifest`].
-    Call { method: String },
+    Call {
+        method: String,
+        context: RenderContext,
+    },
 }
 
 /// A plugin's answer to a [`Request`], one variant per request.
@@ -64,23 +81,21 @@ pub struct Manifest {
 /// A message from a plugin to the host.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum HostRequest {
-    /// Read an environment variable.
-    Env { name: String },
-    /// Run a command in the render's working directory. With `cached`, the
-    /// host may return a stored result keyed by the binary and arguments.
+    /// Run a command in `cwd`. With `cached`, the host may return a stored
+    /// result keyed by the binary and arguments.
     Exec {
         cmd: String,
         args: Vec<String>,
+        cwd: PathBuf,
         cached: bool,
     },
-    /// Check whether a path relative to the render's working directory exists.
-    FileExists { path: String },
+    /// Check whether an absolute path exists.
+    FileExists { path: PathBuf },
 }
 
 /// The host's answer to a [`HostRequest`], one variant per request.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum HostResponse {
-    Env(Option<String>),
     Exec(Option<String>),
     FileExists(bool),
 }

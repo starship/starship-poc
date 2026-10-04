@@ -48,6 +48,7 @@ mod tests {
         let ctx = ShellContext {
             pwd: Some(dir.path().to_path_buf()),
             user: Some("test".into()),
+            ..ShellContext::default()
         };
 
         let (client, server) = UnixStream::pair().unwrap();

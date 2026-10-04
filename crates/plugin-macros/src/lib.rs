@@ -6,7 +6,8 @@ use syn::{ImplItem, ItemImpl, Type, parse_macro_input};
 /// Exports a plugin impl block for WASM.
 ///
 /// The struct must implement `starship_plugin_sdk::Plugin`.
-/// Public methods in this impl block become callable from the config.
+/// Public methods in this impl block become callable from the config. Each
+/// takes `&self` and may also take `ctx: &Ctx`.
 #[proc_macro_attribute]
 pub fn export_plugin(_attr: TokenStream, item: TokenStream) -> TokenStream {
     let impl_block = parse_macro_input!(item as ItemImpl);
@@ -36,7 +37,14 @@ fn export(mut impl_block: ItemImpl, handler: &proc_macro2::TokenStream) -> Token
 
     let struct_type = struct_name(&impl_block);
     let methods = public_methods(&impl_block);
-    let names: Vec<String> = methods.iter().map(ToString::to_string).collect();
+    let names: Vec<String> = methods.iter().map(|m| m.name.to_string()).collect();
+    let calls = methods.iter().map(|Method { name, takes_ctx }| {
+        if *takes_ctx {
+            quote!(self.#name(ctx))
+        } else {
+            quote!(self.#name())
+        }
+    });
 
     TokenStream::from(quote! {
         #impl_block
@@ -44,9 +52,13 @@ fn export(mut impl_block: ItemImpl, handler: &proc_macro2::TokenStream) -> Token
         impl ::starship_plugin_sdk::dispatch::Methods for #struct_type {
             const METHODS: &'static [&'static str] = &[#(#names),*];
 
-            fn call(&self, method: &str) -> ::starship_plugin_sdk::serde_json::Value {
+            fn call(
+                &self,
+                method: &str,
+                ctx: &::starship_plugin_sdk::Ctx,
+            ) -> ::starship_plugin_sdk::serde_json::Value {
                 match method {
-                    #(#names => ::starship_plugin_sdk::dispatch::to_value(self.#methods()),)*
+                    #(#names => ::starship_plugin_sdk::dispatch::to_value(#calls),)*
                     _ => ::starship_plugin_sdk::serde_json::Value::Null,
                 }
             }
@@ -57,7 +69,11 @@ fn export(mut impl_block: ItemImpl, handler: &proc_macro2::TokenStream) -> Token
             ::std::thread_local! {
                 static PLUGIN: #struct_type = <#struct_type as ::core::default::Default>::default();
             }
-            PLUGIN.with(|plugin| ::starship_plugin_sdk::dispatch::#handler(plugin, packed))
+            PLUGIN.with(|plugin| {
+                ::starship_plugin_sdk::dispatch::handle_packed(packed, |request| {
+                    ::starship_plugin_sdk::dispatch::#handler(plugin, request)
+                })
+            })
         }
     })
 }
@@ -69,13 +85,23 @@ fn struct_name(impl_block: &ItemImpl) -> Ident {
     }
 }
 
-fn public_methods(impl_block: &ItemImpl) -> Vec<Ident> {
+/// A public method in the exported impl block.
+struct Method {
+    name: Ident,
+    /// Whether it takes `ctx: &Ctx` after `&self`.
+    takes_ctx: bool,
+}
+
+fn public_methods(impl_block: &ItemImpl) -> Vec<Method> {
     impl_block
         .items
         .iter()
         .filter_map(|item| match item {
             ImplItem::Fn(method) if matches!(method.vis, syn::Visibility::Public(_)) => {
-                Some(method.sig.ident.clone())
+                Some(Method {
+                    name: method.sig.ident.clone(),
+                    takes_ctx: method.sig.inputs.len() > 1,
+                })
             }
             _ => None,
         })

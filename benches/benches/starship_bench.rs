@@ -42,6 +42,7 @@ fn context() -> ShellContext {
     ShellContext {
         pwd: Some(PathBuf::from("/Users/test/projects/starship")),
         user: Some("testuser".into()),
+        ..ShellContext::default()
     }
 }
 
@@ -87,15 +88,8 @@ fn cached_config(bencher: Bencher, config: &BenchConfig) {
 #[divan::bench]
 fn plugin_load() {
     let engine = plugin::create_engine().unwrap();
-    let dir = tempfile::tempdir().unwrap();
     black_box(
-        WasmPlugin::load(
-            &engine,
-            TEST_HARNESS_WASM,
-            dir.path(),
-            Rc::new(ExecCache::in_memory()),
-        )
-        .unwrap(),
+        WasmPlugin::load(&engine, TEST_HARNESS_WASM, Rc::new(ExecCache::in_memory())).unwrap(),
     );
 }
 

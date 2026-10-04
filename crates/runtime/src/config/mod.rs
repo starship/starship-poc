@@ -1,14 +1,16 @@
 use crate::config::nerd_font::register_icon_function;
 use crate::config::style::{LuaStyledContent, register_compact_function, register_style_functions};
 use crate::exec_cache::ExecCache;
-use crate::plugin::{WasmPlugin, create_engine, load_plugins, register_plugin};
+use crate::plugin::{RenderState, WasmPlugin, create_engine, load_plugins, register_plugin};
 use anyhow::Result;
 use mlua::{FromLua, Lua, LuaOptions, LuaSerdeExt, SerializeOptions, StdLib};
 use serde::{Deserialize, Serialize};
 use starship_common::{ShellContext, get_cache_dir, get_config_dir, styled::StyledContent};
+use starship_plugin_core::RenderContext;
 use std::cell::RefCell;
+use std::path::{Path, PathBuf};
 use std::rc::Rc;
-use std::{fs, path::PathBuf, time::SystemTime};
+use std::{fs, time::SystemTime};
 use tracing::instrument;
 
 mod nerd_font;
@@ -51,7 +53,8 @@ pub struct ConfigLoader {
     source: ConfigSource,
     cached_func: Option<mlua::Function>,
     cached_mtime: Option<SystemTime>,
-    plugins: Vec<Rc<RefCell<WasmPlugin>>>,
+    /// The render in progress, shared with every plugin's Lua proxy.
+    render: Rc<RefCell<RenderState>>,
 }
 
 impl ConfigLoader {
@@ -62,20 +65,11 @@ impl ConfigLoader {
     }
 
     pub fn from_path(path: impl Into<PathBuf>) -> Result<Self> {
-        let plugin_dir = get_plugin_dir();
-        let default_pwd = std::env::current_dir().unwrap_or_default();
         let exec_cache = Rc::new(create_exec_cache());
         let engine = create_engine()?;
-        let plugins = load_plugins(&engine, &plugin_dir, &default_pwd, &exec_cache)
-            .into_iter()
-            .map(|p| Rc::new(RefCell::new(p)))
-            .collect::<Vec<_>>();
+        let plugins = load_plugins(&engine, &get_plugin_dir(), &exec_cache);
         let lua = create_lua()?;
-
-        for plugin in &plugins {
-            register_plugin(&lua, Rc::clone(plugin))?;
-        }
-
+        let render = register_plugins(&lua, plugins)?;
         let config_env = create_config_env(&lua)?;
 
         Ok(Self {
@@ -84,7 +78,7 @@ impl ConfigLoader {
             source: ConfigSource::File(path.into()),
             cached_func: None,
             cached_mtime: None,
-            plugins,
+            render,
         })
     }
 
@@ -95,15 +89,7 @@ impl ConfigLoader {
 
     pub fn from_source_with_plugins(source: &str, plugins: Vec<WasmPlugin>) -> Result<Self> {
         let lua = create_lua()?;
-        let plugins = plugins
-            .into_iter()
-            .map(|p| Rc::new(RefCell::new(p)))
-            .collect::<Vec<_>>();
-
-        for plugin in &plugins {
-            register_plugin(&lua, Rc::clone(plugin))?;
-        }
-
+        let render = register_plugins(&lua, plugins)?;
         let config_env = create_config_env(&lua)?;
         let func = lua
             .load(source)
@@ -116,7 +102,7 @@ impl ConfigLoader {
             source: ConfigSource::Inline,
             cached_func: Some(func),
             cached_mtime: None,
-            plugins,
+            render,
         })
     }
 
@@ -160,20 +146,37 @@ impl ConfigLoader {
 
     #[instrument(skip_all)]
     fn set_globals(&self, context: &ShellContext) -> Result<()> {
+        /// The part of the shell context the config sees as `ctx`.
+        #[derive(Serialize)]
+        struct LuaContext<'a> {
+            pwd: Option<&'a Path>,
+            user: Option<&'a str>,
+        }
+
+        let lua_context = LuaContext {
+            pwd: context.pwd.as_deref(),
+            user: context.user.as_deref(),
+        };
         let options = SerializeOptions::new().serialize_none_to_null(false);
-        let ctx = self.lua.to_value_with(context, options)?;
+        let ctx = self.lua.to_value_with(&lua_context, options)?;
         self.lua.globals().set("ctx", ctx)?;
 
-        let pwd = context
-            .pwd
-            .as_deref()
-            .unwrap_or_else(|| std::path::Path::new("/"));
-        for plugin in &self.plugins {
-            plugin.borrow_mut().begin_render(pwd);
-        }
+        self.render.borrow_mut().begin(RenderContext {
+            pwd: context.pwd.clone().unwrap_or_else(|| PathBuf::from("/")),
+            env: context.env.clone(),
+        });
 
         Ok(())
     }
+}
+
+/// Registers each plugin as a Lua global, all sharing one render state.
+fn register_plugins(lua: &Lua, plugins: Vec<WasmPlugin>) -> Result<Rc<RefCell<RenderState>>> {
+    let render = Rc::new(RefCell::new(RenderState::default()));
+    for plugin in plugins {
+        register_plugin(lua, Rc::new(RefCell::new(plugin)), Rc::clone(&render))?;
+    }
+    Ok(render)
 }
 
 /// Creates a new Lua state with the sandboxed environment.
@@ -272,6 +275,7 @@ mod tests {
         ShellContext {
             pwd: pwd.map(PathBuf::from),
             user: user.map(str::to_string),
+            ..ShellContext::default()
         }
     }
 

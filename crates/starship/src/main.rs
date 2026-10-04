@@ -35,8 +35,12 @@ fn main() -> Result<()> {
 fn construct_shell_context() -> ShellContext {
     let pwd = std::env::current_dir().ok();
     let user = std::env::var_os("USER").map(|os| os.to_string_lossy().to_string());
+    // Variables that aren't valid UTF-8 are skipped.
+    let env = std::env::vars_os()
+        .filter_map(|(name, value)| Some((name.into_string().ok()?, value.into_string().ok()?)))
+        .collect();
 
-    ShellContext { pwd, user }
+    ShellContext { pwd, user, env }
 }
 
 fn connect_or_spawn_daemon() -> Result<std::os::unix::net::UnixStream> {

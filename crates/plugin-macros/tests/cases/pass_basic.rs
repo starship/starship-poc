@@ -1,4 +1,4 @@
-use starship_plugin_sdk::{export_plugin, Plugin};
+use starship_plugin_sdk::{export_plugin, Ctx, Plugin};
 
 #[derive(Default)]
 struct TestPlugin;
@@ -6,7 +6,7 @@ struct TestPlugin;
 impl Plugin for TestPlugin {
     const NAME: &str = "test";
 
-    fn is_applicable(&self) -> bool {
+    fn is_applicable(&self, _ctx: &Ctx) -> bool {
         true
     }
 }
@@ -15,6 +15,10 @@ impl Plugin for TestPlugin {
 impl TestPlugin {
     pub fn value(&self) -> &str {
         "hello"
+    }
+
+    pub fn pwd(&self, ctx: &Ctx) -> String {
+        ctx.pwd().display().to_string()
     }
 }
 
