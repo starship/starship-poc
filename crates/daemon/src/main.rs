@@ -1,6 +1,7 @@
 use anyhow::Result;
 use starship_common::{init_tracing, socket};
-use starship_daemon::{config::ConfigLoader, handle_client};
+use starship_daemon::handle_client;
+use starship_runtime::ConfigLoader;
 
 fn main() -> Result<()> {
     let _guard = init_tracing();

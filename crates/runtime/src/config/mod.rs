@@ -8,7 +8,6 @@ use serde::{Deserialize, Serialize};
 use starship_common::{ShellContext, get_cache_dir, get_config_dir, styled::StyledContent};
 use std::cell::RefCell;
 use std::rc::Rc;
-use std::sync::Arc;
 use std::{fs, path::PathBuf, time::SystemTime};
 use tracing::instrument;
 
@@ -65,12 +64,12 @@ impl ConfigLoader {
     pub fn from_path(path: impl Into<PathBuf>) -> Result<Self> {
         let plugin_dir = get_plugin_dir();
         let default_pwd = std::env::current_dir().unwrap_or_default();
-        let exec_cache = Arc::new(create_exec_cache());
+        let exec_cache = Rc::new(create_exec_cache());
         let engine = create_engine()?;
         let plugins = load_plugins(&engine, &plugin_dir, &default_pwd, &exec_cache)
             .into_iter()
             .map(|p| Rc::new(RefCell::new(p)))
-            .collect();
+            .collect::<Vec<_>>();
         let lua = create_lua()?;
 
         for plugin in &plugins {
@@ -99,7 +98,7 @@ impl ConfigLoader {
         let plugins = plugins
             .into_iter()
             .map(|p| Rc::new(RefCell::new(p)))
-            .collect();
+            .collect::<Vec<_>>();
 
         for plugin in &plugins {
             register_plugin(&lua, Rc::clone(plugin))?;
@@ -170,7 +169,7 @@ impl ConfigLoader {
             .as_deref()
             .unwrap_or_else(|| std::path::Path::new("/"));
         for plugin in &self.plugins {
-            plugin.borrow_mut().update_context(pwd);
+            plugin.borrow_mut().begin_render(pwd);
         }
 
         Ok(())
@@ -223,45 +222,23 @@ fn create_config_env(lua: &Lua) -> Result<mlua::Table> {
     Ok(env)
 }
 
-/// Gets the plugin directory, falling back to `target/wasm32-unknown-unknown/release`
-/// when running from a cargo workspace with compiled plugins.
+/// Gets the plugin directory: `STARSHIP_PLUGIN_DIR` if set, otherwise
+/// `plugins/` in the config directory.
 fn get_plugin_dir() -> PathBuf {
-    if let Ok(dir) = std::env::var("STARSHIP_PLUGIN_DIR") {
-        return PathBuf::from(dir);
-    }
-
-    let default_dir = get_config_dir().unwrap_or_default().join("plugins");
-
-    if has_wasm_files(&default_dir) {
-        return default_dir;
-    }
-
-    let wasm_target = std::env::current_dir()
-        .unwrap_or_default()
-        .join("target/wasm32-unknown-unknown/release");
-    if has_wasm_files(&wasm_target) {
-        return wasm_target;
-    }
-
-    default_dir
+    std::env::var("STARSHIP_PLUGIN_DIR").map_or_else(
+        |_| get_config_dir().unwrap_or_default().join("plugins"),
+        PathBuf::from,
+    )
 }
 
 fn create_exec_cache() -> ExecCache {
     get_cache_dir().map_or_else(
         |_| {
             tracing::warn!("failed to resolve cache dir, exec cache will be in-memory only");
-            ExecCache::load(PathBuf::from("/dev/null"))
+            ExecCache::in_memory()
         },
         |dir| ExecCache::load(dir.join("exec_cache.json")),
     )
-}
-
-fn has_wasm_files(dir: &std::path::Path) -> bool {
-    std::fs::read_dir(dir).is_ok_and(|mut entries| {
-        entries.any(|e: std::result::Result<std::fs::DirEntry, _>| {
-            e.is_ok_and(|e| e.path().extension().is_some_and(|ext| ext == "wasm"))
-        })
-    })
 }
 
 /// Gets the path to the config file.
@@ -286,6 +263,7 @@ fn get_config_path() -> Result<PathBuf> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::plugin::test_helpers::PluginFixture;
     use anyhow::Result;
     use starship_common::owo_colors::style;
     use starship_common::render::paint;
@@ -439,7 +417,7 @@ mod tests {
 
     #[test]
     fn plugin_proxy_resolves_field() {
-        let mut plugin = crate::plugin_fixture!();
+        let mut plugin = PluginFixture::test_harness();
         std::fs::write(plugin.dir.join(".starship-test-marker"), "").unwrap();
         let result = plugin.render(r#"test.home or "N/A""#);
         assert_ne!(result, "N/A");
@@ -447,7 +425,7 @@ mod tests {
 
     #[test]
     fn plugin_proxy_returns_nil_for_unknown_method() {
-        let mut plugin = crate::plugin_fixture!();
+        let mut plugin = PluginFixture::test_harness();
         let result = plugin.render(r#"test.fakefield or "fallback""#);
         assert_eq!(result, "fallback");
     }

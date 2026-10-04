@@ -6,7 +6,7 @@ Plugins that want cross-render caching (the common case being VCS plugins memoiz
 
 - The cache lives only for the daemon's process lifetime; cold start re-warms naturally.
 - Unbounded growth is theoretically possible (a user `cd`-ing through many directories in one daemon session). Acceptable for MVP given typical entry sizes (~100s of bytes); LRU bounds can be added later if profiling shows it matters.
-- A new `host::pwd()` host function ships alongside this work, since pwd-keyed caching needs explicit access to the working directory rather than implicit delivery via `update_context`.
+- A new `host::pwd()` host function ships alongside this work, since pwd-keyed caching needs explicit access to the working directory rather than implicit delivery via `WasmPlugin::begin_render`.
 - The user-provided namespace string passed to `Cache::new(namespace)` sub-divides *within* a plugin (e.g. one plugin holding `Cache::new("root")` and `Cache::new("branch")` separately). Per-plugin isolation is automatic; the namespace string is for sub-keying, not for security.
 
 ## Future Work

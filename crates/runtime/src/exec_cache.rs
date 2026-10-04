@@ -8,11 +8,12 @@
 //! The cache is write-through: every new entry is persisted to
 //! `$XDG_CACHE_HOME/starship/exec_cache.json` immediately.
 
+use std::cell::RefCell;
+use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::UNIX_EPOCH;
 
-use dashmap::DashMap;
 use serde::{Deserialize, Serialize};
 use tracing::instrument;
 
@@ -35,36 +36,32 @@ struct ExecCacheKey {
 
 /// In-memory cache of binary exec results, backed by a JSON file on disk.
 ///
-/// Uses `DashMap` for non-blocking concurrent reads. Writes are sharded
-/// internally so readers are never blocked.
+/// Shared by every plugin through an `Rc`. The daemon renders one prompt at a
+/// time, so a `RefCell` is enough.
 pub struct ExecCache {
-    entries: DashMap<ExecCacheKey, String>,
+    entries: RefCell<HashMap<ExecCacheKey, String>>,
     cache_path: Option<PathBuf>,
 }
 
 impl ExecCache {
     /// Load cache from disk, or create empty if the file is missing or corrupt.
     pub fn load(cache_path: PathBuf) -> Self {
-        let entries = DashMap::new();
-        if let Some(pairs) = fs::read_to_string(&cache_path)
+        let entries = fs::read_to_string(&cache_path)
             .ok()
             .and_then(|s| serde_json::from_str::<Vec<(ExecCacheKey, String)>>(&s).ok())
-        {
-            for (k, v) in pairs {
-                entries.insert(k, v);
-            }
-        }
+            .unwrap_or_default()
+            .into_iter()
+            .collect();
         Self {
-            entries,
+            entries: RefCell::new(entries),
             cache_path: Some(cache_path),
         }
     }
 
     /// Create an in-memory-only cache with no disk persistence.
-    #[cfg(any(test, feature = "testing"))]
     pub fn in_memory() -> Self {
         Self {
-            entries: DashMap::new(),
+            entries: RefCell::default(),
             cache_path: None,
         }
     }
@@ -77,7 +74,7 @@ impl ExecCache {
     #[instrument(skip(self), fields(%cmd))]
     pub fn get(&self, cmd: &str, args: &[String]) -> Option<String> {
         let key = build_key(cmd, args)?;
-        self.entries.get(&key).map(|v| v.value().clone())
+        self.entries.borrow().get(&key).cloned()
     }
 
     /// Insert a result and write-through to disk.
@@ -89,7 +86,7 @@ impl ExecCache {
         let Some(key) = build_key(cmd, args) else {
             return;
         };
-        self.entries.insert(key, output);
+        self.entries.borrow_mut().insert(key, output);
         self.flush();
     }
 
@@ -102,13 +99,13 @@ impl ExecCache {
         if let Some(parent) = path.parent() {
             let _ = fs::create_dir_all(parent);
         }
-        let entries: Vec<_> = self
-            .entries
-            .iter()
-            .map(|entry| (entry.key().clone(), entry.value().clone()))
-            .collect();
-        if let Ok(json) = serde_json::to_string(&entries) {
-            let _ = fs::write(path, json);
+        let entries = self.entries.borrow();
+        let pairs: Vec<_> = entries.iter().collect();
+        let result = serde_json::to_string(&pairs)
+            .map_err(std::io::Error::from)
+            .and_then(|json| fs::write(path, json));
+        if let Err(error) = result {
+            tracing::warn!(path = %path.display(), %error, "exec cache: write failed");
         }
     }
 }

@@ -1,16 +1,4 @@
 error[E0277]: the trait bound `BadPlugin: Plugin` is not satisfied
- --> tests/cases/fail_missing_trait.rs:7:6
-  |
-7 | impl BadPlugin {
-  |      ^^^^^^^^^ unsatisfied trait bound
-  |
-help: the trait `Plugin` is not implemented for `BadPlugin`
- --> tests/cases/fail_missing_trait.rs:4:1
-  |
-4 | struct BadPlugin;
-  | ^^^^^^^^^^^^^^^^
-
-error[E0277]: the trait bound `BadPlugin: Plugin` is not satisfied
  --> tests/cases/fail_missing_trait.rs:6:1
   |
 6 | #[export_plugin]
@@ -21,4 +9,9 @@ help: the trait `Plugin` is not implemented for `BadPlugin`
   |
 4 | struct BadPlugin;
   | ^^^^^^^^^^^^^^^^
+note: required by a bound in `starship_plugin_sdk::dispatch::handle_plugin`
+ --> $WORKSPACE/crates/plugin-sdk/src/dispatch.rs
+  |
+  | pub fn handle_plugin<P: Plugin + Methods>(plugin: &P, packed: u64) -> u64 {
+  |                         ^^^^^^ required by this bound in `handle_plugin`
   = note: this error originates in the attribute macro `export_plugin` (in Nightly builds, run with -Z macro-backtrace for more info)

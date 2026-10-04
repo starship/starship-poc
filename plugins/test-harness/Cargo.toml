@@ -5,13 +5,10 @@ edition.workspace = true
 rust-version.workspace = true
 
 [lib]
-crate-type = ["cdylib", "rlib"]
+crate-type = ["cdylib"]
 
 [dependencies]
 starship-plugin-sdk.workspace = true
-
-[dev-dependencies]
-starship-runtime = { workspace = true, features = ["testing"] }
 
 [lints]
 workspace = true

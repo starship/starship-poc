@@ -1,8 +1,6 @@
-// Re-export runtime for backward compatibility
-pub use starship_runtime::*;
-
 use anyhow::{Context, Result};
 use starship_common::ShellContext;
+use starship_runtime::{Config, ConfigLoader};
 use std::io::{BufRead, BufReader, Read, Write};
 use tracing::instrument;
 
@@ -39,6 +37,7 @@ pub fn handle_client<S: Read + Write>(stream: S, loader: &mut ConfigLoader) -> R
 #[cfg(test)]
 mod tests {
     use super::*;
+    use starship_runtime::plugin::test_helpers::PluginFixture;
     use std::os::unix::net::UnixStream;
 
     #[test]
@@ -61,7 +60,7 @@ mod tests {
 
     #[test]
     fn daemon_serves_prompt_with_plugin_data() {
-        let mut plugin = starship_runtime::plugin_fixture!();
+        let mut plugin = PluginFixture::test_harness();
         std::fs::write(plugin.dir.join(".starship-test-marker"), "").unwrap();
         let result = plugin.render(r#"test.home or "none""#);
         assert_ne!(result, "");
@@ -70,7 +69,7 @@ mod tests {
 
     #[test]
     fn plugin_method_returns_nil_when_inapplicable() {
-        let mut plugin = starship_runtime::plugin_fixture!();
+        let mut plugin = PluginFixture::test_harness();
         let result = plugin.render(r#"test.home or "inapplicable""#);
         assert_eq!(result, "inapplicable");
     }

@@ -1,14 +1,18 @@
-use std::cell::{Cell, RefCell};
+use std::cell::RefCell;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
-use std::sync::Arc;
 
-use anyhow::{Result, anyhow};
+use anyhow::{Context, Result, bail, ensure};
 use mlua::{Lua, LuaSerdeExt, Table};
+use serde::Serialize;
+use serde::de::DeserializeOwned;
 use serde_json::Value;
-use starship_plugin_core::{from_bitwise, into_bitwise};
+use starship_plugin_core::{
+    ABI_VERSION, HostRequest, HostResponse, Manifest, PluginKind, Request, Response, from_bitwise,
+    into_bitwise,
+};
 use tracing::instrument;
-use wasmtime::{Cache, Caller, Engine, Linker, Memory, Module, Store, TypedFunc};
+use wasmtime::{AsContextMut, Cache, Caller, Engine, Linker, Memory, Module, Store, TypedFunc};
 
 use crate::exec_cache::ExecCache;
 
@@ -24,119 +28,39 @@ pub fn create_engine() -> Result<Engine> {
     Ok(Engine::new(&config)?)
 }
 
+/// What the host knows while answering a plugin's [`HostRequest`]s.
 struct HostState {
     pwd: PathBuf,
-    exec_cache: Arc<ExecCache>,
+    exec_cache: Rc<ExecCache>,
+    /// Set right after instantiation, before any request can arrive.
+    guest: Option<GuestMemory>,
 }
 
-struct GuestExports {
-    memory: Memory,
-    alloc: TypedFunc<u32, u32>,
-    dealloc: TypedFunc<u64, ()>,
-    call: TypedFunc<(u32, u64), u64>,
-    is_applicable: Option<TypedFunc<u32, u64>>,
-    detect_depth: Option<TypedFunc<u32, u64>>,
-    kind: Option<TypedFunc<(), u64>>,
-    shadows: Option<TypedFunc<(), u64>>,
-    drop: Option<TypedFunc<u32, ()>>,
-}
-
-/// A loaded WASM plugin instance backed by wasmtime.
-///
-/// Each plugin exposes named accessor methods (e.g. `version`, `branch`) that
-/// return JSON values across the WASM boundary. The plugin's lifecycle is tied
-/// to this struct — dropping it calls `_plugin_drop` in the guest.
-pub struct WasmPlugin {
-    store: Store<HostState>,
-    exports: GuestExports,
-    name: String,
-    handle: u32,
-    is_applicable: Cell<Option<bool>>,
-}
-
-fn caller_memory(caller: &mut Caller<'_, HostState>) -> Result<wasmtime::Memory> {
-    caller
-        .get_export("memory")
-        .and_then(wasmtime::Extern::into_memory)
-        .ok_or_else(|| anyhow!("missing memory export"))
-}
-
-fn caller_alloc(caller: &mut Caller<'_, HostState>, len: u32) -> Result<u32> {
-    let alloc = caller
-        .get_export("alloc")
-        .and_then(wasmtime::Extern::into_func)
-        .ok_or_else(|| anyhow!("missing alloc export"))?;
-    let alloc = alloc.typed::<u32, u32>(&mut *caller)?;
-    Ok(alloc.call(&mut *caller, len)?)
-}
-
-fn caller_dealloc(caller: &mut Caller<'_, HostState>, packed: u64) -> Result<()> {
-    let dealloc = caller
-        .get_export("dealloc")
-        .and_then(wasmtime::Extern::into_func)
-        .ok_or_else(|| anyhow!("missing dealloc export"))?;
-    let dealloc = dealloc.typed::<u64, ()>(&mut *caller)?;
-    Ok(dealloc.call(&mut *caller, packed)?)
-}
-
-fn read_guest_bytes(caller: &mut Caller<'_, HostState>, packed: u64) -> Result<Vec<u8>> {
-    let (ptr, len) = from_bitwise(packed);
-    let memory = caller_memory(caller)?;
-    let mut buf = vec![0u8; len as usize];
-    memory.read(&*caller, ptr as usize, &mut buf)?;
-    Ok(buf)
-}
-
-fn write_guest_bytes(caller: &mut Caller<'_, HostState>, bytes: &[u8]) -> Result<u64> {
-    #[expect(clippy::cast_possible_truncation, reason = "wasm32 lengths are 32-bit")]
-    let len = bytes.len() as u32;
-    let ptr = caller_alloc(caller, len)?;
-    let memory = caller_memory(caller)?;
-    memory.write(&mut *caller, ptr as usize, bytes)?;
-    Ok(into_bitwise(ptr, len))
-}
-
-#[instrument(skip_all)]
-fn host_get_env(caller: &mut Caller<'_, HostState>, packed: u64) -> Result<u64> {
-    let bytes = read_guest_bytes(caller, packed)?;
-    caller_dealloc(caller, packed)?;
-    let name: String = serde_json::from_slice(&bytes)?;
-    let result: Option<String> = std::env::var(&name).ok();
-    let json = serde_json::to_vec(&result)?;
-    write_guest_bytes(caller, &json)
-}
-
-fn host_exec(caller: &mut Caller<'_, HostState>, packed: u64) -> Result<u64> {
-    let bytes = read_guest_bytes(caller, packed)?;
-    caller_dealloc(caller, packed)?;
-    let (cmd, args): (String, Vec<String>) = serde_json::from_slice(&bytes)?;
-    let _span = tracing::info_span!("host_exec", %cmd).entered();
-
-    if let Some(cached) = caller.data().exec_cache.get(&cmd, &args) {
-        tracing::debug!("cache hit");
-        let result: Option<String> = Some(cached);
-        let json = serde_json::to_vec(&result)?;
-        return write_guest_bytes(caller, &json);
+impl HostState {
+    fn respond(&self, request: HostRequest) -> HostResponse {
+        match request {
+            HostRequest::Env { name } => HostResponse::Env(std::env::var(name).ok()),
+            HostRequest::Exec { cmd, args, cached } => {
+                HostResponse::Exec(self.exec(&cmd, &args, cached))
+            }
+            HostRequest::FileExists { path } => {
+                HostResponse::FileExists(self.pwd.join(path).exists())
+            }
+        }
     }
 
-    let result = run_command(&cmd, &args, &caller.data().pwd);
-
-    if let Some(ref output) = result {
-        caller.data().exec_cache.insert(&cmd, &args, output.clone());
+    #[instrument(skip(self, args))]
+    fn exec(&self, cmd: &str, args: &[String], cached: bool) -> Option<String> {
+        if cached && let Some(output) = self.exec_cache.get(cmd, args) {
+            tracing::debug!("cache hit");
+            return Some(output);
+        }
+        let output = run_command(cmd, args, &self.pwd)?;
+        if cached {
+            self.exec_cache.insert(cmd, args, output.clone());
+        }
+        Some(output)
     }
-
-    let json = serde_json::to_vec(&result)?;
-    write_guest_bytes(caller, &json)
-}
-
-fn host_exec_uncached(caller: &mut Caller<'_, HostState>, packed: u64) -> Result<u64> {
-    let bytes = read_guest_bytes(caller, packed)?;
-    caller_dealloc(caller, packed)?;
-    let (cmd, args): (String, Vec<String>) = serde_json::from_slice(&bytes)?;
-    let _span = tracing::info_span!("host_exec_uncached", %cmd).entered();
-    let result = run_command(&cmd, &args, &caller.data().pwd);
-    let json = serde_json::to_vec(&result)?;
-    write_guest_bytes(caller, &json)
 }
 
 fn run_command(cmd: &str, args: &[String], pwd: &Path) -> Option<String> {
@@ -149,66 +73,76 @@ fn run_command(cmd: &str, args: &[String], pwd: &Path) -> Option<String> {
         .map(|o| String::from_utf8_lossy(&o.stdout).to_string())
 }
 
-#[instrument(skip_all)]
-fn host_file_exists(caller: &mut Caller<'_, HostState>, packed: u64) -> Result<u32> {
-    let bytes = read_guest_bytes(caller, packed)?;
-    caller_dealloc(caller, packed)?;
-    let path: String = serde_json::from_slice(&bytes)?;
-    let full_path = caller.data().pwd.join(path);
-    Ok(u32::from(full_path.exists()))
+/// Moves JSON messages in and out of a plugin's linear memory.
+///
+/// Messages are passed as a packed `(ptr, len)` `u64`. Whoever receives a
+/// message frees it: the host deallocates what it reads, and the guest frees
+/// what the host wrote with `alloc`.
+#[derive(Clone)]
+struct GuestMemory {
+    memory: Memory,
+    alloc: TypedFunc<u32, u32>,
+    dealloc: TypedFunc<u64, ()>,
 }
 
-fn create_linker(engine: &Engine) -> Result<Linker<HostState>> {
-    let mut linker = Linker::new(engine);
+impl GuestMemory {
+    fn read<T: DeserializeOwned>(&self, mut store: impl AsContextMut, packed: u64) -> Result<T> {
+        let (ptr, len) = from_bitwise(packed);
+        let mut bytes = vec![0u8; len as usize];
+        self.memory.read(&store, ptr as usize, &mut bytes)?;
+        self.dealloc.call(&mut store, packed)?;
+        Ok(serde_json::from_slice(&bytes)?)
+    }
 
-    linker.func_wrap(
-        "env",
-        "_plugin_host_get_env",
-        |mut caller: Caller<'_, HostState>, packed: u64| -> wasmtime::Result<u64> {
-            host_get_env(&mut caller, packed).map_err(|err| wasmtime::Error::msg(err.to_string()))
-        },
-    )?;
+    fn write<T: Serialize>(&self, mut store: impl AsContextMut, value: &T) -> Result<u64> {
+        let bytes = serde_json::to_vec(value)?;
+        let len = u32::try_from(bytes.len()).context("message exceeds wasm32 memory")?;
+        let ptr = self.alloc.call(&mut store, len)?;
+        self.memory.write(&mut store, ptr as usize, &bytes)?;
+        Ok(into_bitwise(ptr, len))
+    }
+}
 
-    linker.func_wrap(
-        "env",
-        "_plugin_host_exec",
-        |mut caller: Caller<'_, HostState>, packed: u64| -> wasmtime::Result<u64> {
-            host_exec(&mut caller, packed).map_err(|err| wasmtime::Error::msg(err.to_string()))
-        },
-    )?;
+/// The plugin's single host import: decode a [`HostRequest`], answer it from
+/// the current render, and write back the [`HostResponse`].
+fn host_handle(mut caller: Caller<'_, HostState>, packed: u64) -> Result<u64> {
+    let guest = caller
+        .data()
+        .guest
+        .clone()
+        .context("guest memory not initialized")?;
+    let request: HostRequest = guest.read(&mut caller, packed)?;
+    let response = caller.data().respond(request);
+    guest.write(&mut caller, &response)
+}
 
-    linker.func_wrap(
-        "env",
-        "_plugin_host_exec_uncached",
-        |mut caller: Caller<'_, HostState>, packed: u64| -> wasmtime::Result<u64> {
-            host_exec_uncached(&mut caller, packed)
-                .map_err(|err| wasmtime::Error::msg(err.to_string()))
-        },
-    )?;
+/// Results cached for the duration of one render. Cleared by
+/// [`WasmPlugin::begin_render`].
+#[derive(Default)]
+struct RenderState {
+    is_applicable: Option<bool>,
+}
 
-    linker.func_wrap(
-        "env",
-        "_plugin_host_file_exists",
-        |mut caller: Caller<'_, HostState>, packed: u64| -> wasmtime::Result<u32> {
-            host_file_exists(&mut caller, packed)
-                .map_err(|err| wasmtime::Error::msg(err.to_string()))
-        },
-    )?;
-
-    Ok(linker)
+/// A loaded WASM plugin instance backed by wasmtime.
+///
+/// All communication goes through the plugin's `_plugin_handle` export using
+/// the [`Request`]/[`Response`] protocol. The plugin's [`Manifest`] is read
+/// once at load, so its name, kind, and methods are plain fields afterward.
+pub struct WasmPlugin {
+    store: Store<HostState>,
+    guest: GuestMemory,
+    handle: TypedFunc<u64, u64>,
+    manifest: Manifest,
+    render: RenderState,
 }
 
 impl WasmPlugin {
-    /// Loads a WASM plugin by compiling bytes and instantiating the module.
-    ///
-    /// Links host functions (`get_env`, `exec`, `exec_uncached`, `file_exists`),
-    /// instantiates the module, reads the plugin name, and creates a guest-side
-    /// instance handle.
+    /// Compiles and instantiates a plugin from WASM bytes.
     pub fn load(
         engine: &Engine,
         wasm_bytes: &[u8],
         pwd: &Path,
-        exec_cache: Arc<ExecCache>,
+        exec_cache: Rc<ExecCache>,
     ) -> Result<Self> {
         let module = tracing::info_span!("compile").in_scope(|| Module::new(engine, wasm_bytes))?;
         Self::from_module(&module, pwd, exec_cache)
@@ -216,209 +150,152 @@ impl WasmPlugin {
 
     /// Creates a plugin instance from a pre-compiled module, skipping WASM
     /// compilation. Use when instantiating the same plugin multiple times.
-    pub fn from_module(module: &Module, pwd: &Path, exec_cache: Arc<ExecCache>) -> Result<Self> {
+    pub fn from_module(module: &Module, pwd: &Path, exec_cache: Rc<ExecCache>) -> Result<Self> {
         let engine = module.engine();
-        let linker = create_linker(engine)?;
+        let mut linker = Linker::new(engine);
+        linker.func_wrap(
+            "env",
+            "_host_handle",
+            |caller: Caller<'_, HostState>, packed: u64| -> wasmtime::Result<u64> {
+                host_handle(caller, packed).map_err(|err| wasmtime::Error::msg(err.to_string()))
+            },
+        )?;
+
         let mut store = Store::new(
             engine,
             HostState {
                 pwd: pwd.to_path_buf(),
                 exec_cache,
+                guest: None,
             },
         );
         let instance = tracing::info_span!("instantiate")
             .in_scope(|| linker.instantiate(&mut store, module))?;
 
-        let exports = GuestExports {
+        let guest = GuestMemory {
             memory: instance
                 .get_memory(&mut store, "memory")
-                .ok_or_else(|| anyhow!("missing memory export"))?,
+                .context("missing memory export")?,
             alloc: instance.get_typed_func(&mut store, "alloc")?,
             dealloc: instance.get_typed_func(&mut store, "dealloc")?,
-            call: instance.get_typed_func(&mut store, "_plugin_call")?,
-            is_applicable: instance
-                .get_typed_func(&mut store, "_plugin_is_applicable")
-                .ok(),
-            detect_depth: instance
-                .get_typed_func(&mut store, "_plugin_detect_depth")
-                .ok(),
-            kind: instance.get_typed_func(&mut store, "_plugin_kind").ok(),
-            shadows: instance.get_typed_func(&mut store, "_plugin_shadows").ok(),
-            drop: instance.get_typed_func(&mut store, "_plugin_drop").ok(),
         };
+        store.data_mut().guest = Some(guest.clone());
+        let handle = instance.get_typed_func(&mut store, "_plugin_handle")?;
 
-        let name_func = instance.get_typed_func::<(), u64>(&mut store, "_plugin_name")?;
-        let name_packed = name_func.call(&mut store, ())?;
-        let name_bytes = Self::read_guest_bytes_raw(&exports, &store, name_packed)?;
-        exports.dealloc.call(&mut store, name_packed)?;
-        let name: String = serde_json::from_slice(&name_bytes)?;
-
-        let new_func = instance.get_typed_func::<(), u32>(&mut store, "_plugin_new")?;
-        let handle = new_func.call(&mut store, ())?;
+        let Response::Describe(manifest) =
+            exchange(&mut store, &guest, &handle, &Request::Describe)?
+        else {
+            bail!("plugin answered Describe with an unexpected response");
+        };
+        ensure!(
+            manifest.abi_version == ABI_VERSION,
+            "plugin '{}' uses ABI version {}, expected {ABI_VERSION}",
+            manifest.name,
+            manifest.abi_version,
+        );
 
         Ok(Self {
             store,
-            exports,
-            name,
+            guest,
             handle,
-            is_applicable: Cell::new(None),
+            manifest,
+            render: RenderState::default(),
         })
     }
 
     pub fn name(&self) -> &str {
-        &self.name
+        &self.manifest.name
     }
 
-    /// Reads the plugin's `_plugin_kind` export, falling back to `"general"`
-    /// when the export is missing (older plugins built before kind classification).
-    pub fn kind(&mut self) -> String {
-        let Some(func) = self.exports.kind.clone() else {
-            return "general".to_string();
-        };
-        let Ok(packed) = func.call(&mut self.store, ()) else {
-            return "general".to_string();
-        };
-        let Ok(bytes) = self.read_guest_bytes(packed) else {
-            return "general".to_string();
-        };
-        let _ = self.exports.dealloc.call(&mut self.store, packed);
-        serde_json::from_slice::<String>(&bytes).unwrap_or_else(|_| "general".to_string())
+    pub fn kind(&self) -> PluginKind {
+        self.manifest.kind
     }
 
-    /// Reads the plugin's `_plugin_shadows` export, returning the declared
-    /// list of shadowed plugin names. Empty for plugins missing the export
-    /// or for general (non-VCS) plugins.
-    pub fn shadows(&mut self) -> Vec<String> {
-        let Some(func) = self.exports.shadows.clone() else {
-            return Vec::new();
-        };
-        let Ok(packed) = func.call(&mut self.store, ()) else {
-            return Vec::new();
-        };
-        let Ok(bytes) = self.read_guest_bytes(packed) else {
-            return Vec::new();
-        };
-        let _ = self.exports.dealloc.call(&mut self.store, packed);
-        serde_json::from_slice::<Vec<String>>(&bytes).unwrap_or_default()
+    /// Other plugins this one supersedes when both apply.
+    pub fn shadows(&self) -> &[String] {
+        &self.manifest.shadows
     }
 
-    /// Reads the plugin's `_plugin_detect_depth` export. Returns `None` for
-    /// plugins missing the export (general plugins, or VCS plugins that
-    /// declined to detect at the current pwd).
-    pub fn detect_depth(&mut self) -> Option<u32> {
-        let func = self.exports.detect_depth.clone()?;
-        let packed = func.call(&mut self.store, self.handle).ok()?;
-        let bytes = self.read_guest_bytes(packed).ok()?;
-        let _ = self.exports.dealloc.call(&mut self.store, packed);
-        serde_json::from_slice::<Option<u32>>(&bytes).ok().flatten()
-    }
-
-    /// Updates the working directory for host function calls and invalidates
-    /// the cached `is_applicable` result. Called once per render cycle.
-    pub fn update_context(&mut self, pwd: &Path) {
+    /// Starts a new render: points host requests at `pwd` and clears the
+    /// results cached for the previous render.
+    pub fn begin_render(&mut self, pwd: &Path) {
         self.store.data_mut().pwd = pwd.to_path_buf();
-        self.is_applicable.set(None);
+        self.render = RenderState::default();
     }
 
-    #[instrument(skip_all, fields(plugin = %self.name))]
+    /// Whether the plugin applies to the current render. Cached until the
+    /// next [`begin_render`](Self::begin_render). A failing plugin is treated
+    /// as inapplicable.
+    #[instrument(skip_all, fields(plugin = %self.manifest.name))]
     pub fn is_applicable(&mut self) -> bool {
-        if let Some(cached) = self.is_applicable.get() {
+        if let Some(cached) = self.render.is_applicable {
             return cached;
         }
-        let result = self.is_applicable_uncached();
-        self.is_applicable.set(Some(result));
-        result
-    }
-
-    fn is_applicable_uncached(&mut self) -> bool {
-        let Some(func) = self.exports.is_applicable.clone() else {
-            return true;
+        let applicable = match self.send(&Request::IsApplicable) {
+            Some(Response::IsApplicable(applicable)) => applicable,
+            _ => false,
         };
-        let Ok(packed) = func.call(&mut self.store, self.handle) else {
-            return true;
+        self.render.is_applicable = Some(applicable);
+        applicable
+    }
+
+    /// Distance from the working directory to the plugin's VCS sentinel.
+    /// `None` for general plugins and VCS plugins that don't detect here.
+    pub fn detect_depth(&mut self) -> Option<u32> {
+        match self.send(&Request::DetectDepth)? {
+            Response::DetectDepth(depth) => depth,
+            _ => None,
+        }
+    }
+
+    /// Calls a method from the plugin's manifest. Returns `Null` for unknown
+    /// methods and for failures, which are logged.
+    #[instrument(skip(self), fields(plugin = %self.manifest.name))]
+    pub fn call_method(&mut self, method: &str) -> Value {
+        if !self.manifest.methods.iter().any(|m| m == method) {
+            return Value::Null;
+        }
+        let request = Request::Call {
+            method: method.to_string(),
         };
-        let Ok(bytes) = self.read_guest_bytes(packed) else {
-            return true;
-        };
-        let _ = self.exports.dealloc.call(&mut self.store, packed);
-        serde_json::from_slice::<bool>(&bytes).unwrap_or(true)
+        match self.send(&request) {
+            Some(Response::Call(value)) => value,
+            _ => Value::Null,
+        }
     }
 
-    /// Calls a named accessor method on the plugin via `_plugin_call`.
-    ///
-    /// Returns `Value::Null` for unknown methods or if the guest traps.
-    /// The caller is responsible for converting the JSON value to the desired type.
-    #[instrument(skip(self), fields(plugin = %self.name))]
-    pub fn call_method(&mut self, method: &str) -> Result<Value> {
-        let packed_method = self.write_guest_bytes(&serde_json::to_vec(&method)?)?;
-        let packed_result = match self
-            .exports
-            .call
-            .call(&mut self.store, (self.handle, packed_method))
-        {
-            Ok(value) => value,
-            Err(err) => {
-                tracing::error!(
-                    "Plugin '{}' trapped on method '{}': {}",
-                    self.name,
-                    method,
-                    err
-                );
-                return Ok(Value::Null);
-            }
-        };
-
-        let result_bytes = self.read_guest_bytes(packed_result)?;
-        self.exports.dealloc.call(&mut self.store, packed_result)?;
-        Ok(serde_json::from_slice(&result_bytes)?)
-    }
-
-    fn read_guest_bytes(&self, packed: u64) -> Result<Vec<u8>> {
-        Self::read_guest_bytes_raw(&self.exports, &self.store, packed)
-    }
-
-    fn read_guest_bytes_raw(
-        exports: &GuestExports,
-        store: &Store<HostState>,
-        packed: u64,
-    ) -> Result<Vec<u8>> {
-        let (ptr, len) = from_bitwise(packed);
-        let mut buf = vec![0u8; len as usize];
-        exports.memory.read(store, ptr as usize, &mut buf)?;
-        Ok(buf)
-    }
-
-    fn write_guest_bytes(&mut self, bytes: &[u8]) -> Result<u64> {
-        #[expect(clippy::cast_possible_truncation, reason = "wasm32 lengths are 32-bit")]
-        let len = bytes.len() as u32;
-        let ptr = self.exports.alloc.call(&mut self.store, len)?;
-        self.exports
-            .memory
-            .write(&mut self.store, ptr as usize, bytes)?;
-        Ok(into_bitwise(ptr, len))
+    /// Sends one request. Traps, decode failures, and mismatched responses
+    /// are logged and become `None` (or the wrong variant, which callers
+    /// treat as a failure).
+    fn send(&mut self, request: &Request) -> Option<Response> {
+        exchange(&mut self.store, &self.guest, &self.handle, request)
+            .inspect_err(|error| {
+                tracing::error!(plugin = %self.manifest.name, ?request, %error, "plugin request failed");
+            })
+            .ok()
     }
 }
 
-impl Drop for WasmPlugin {
-    fn drop(&mut self) {
-        if let Some(drop_fn) = self.exports.drop.clone() {
-            let _ = drop_fn.call(&mut self.store, self.handle);
-        }
-    }
+fn exchange(
+    store: &mut Store<HostState>,
+    guest: &GuestMemory,
+    handle: &TypedFunc<u64, u64>,
+    request: &Request,
+) -> Result<Response> {
+    let packed = guest.write(&mut *store, request)?;
+    let result = handle.call(&mut *store, packed)?;
+    guest.read(&mut *store, result)
 }
 
 /// Registers a plugin as a Lua global with an `__index` metamethod.
 ///
-/// Accessing `plugin_name.field` in Lua triggers `_plugin_call` via wasmtime.
+/// Accessing `plugin_name.field` in Lua calls the plugin method of that name.
 /// Skips registration (with a warning) if the name collides with an existing global.
 pub fn register_plugin(lua: &Lua, plugin: Rc<RefCell<WasmPlugin>>) -> mlua::Result<()> {
     let name = plugin.borrow().name().to_string();
 
     if lua.globals().contains_key(name.as_str())? {
-        tracing::warn!(
-            "Plugin '{}' name collides with existing Lua global, skipping",
-            name
-        );
+        tracing::warn!(plugin = %name, "plugin name collides with an existing Lua global, skipping");
         return Ok(());
     }
 
@@ -432,11 +309,7 @@ pub fn register_plugin(lua: &Lua, plugin: Rc<RefCell<WasmPlugin>>) -> mlua::Resu
             if !plugin.is_applicable() {
                 return Ok(mlua::Value::Nil);
             }
-            let result = plugin
-                .call_method(&key)
-                .map_err(|e| mlua::Error::RuntimeError(e.to_string()))?;
-            lua.to_value(&result)
-                .map_err(|e| mlua::Error::RuntimeError(e.to_string()))
+            lua.to_value(&plugin.call_method(&key))
         })?,
     )?;
 
@@ -454,11 +327,8 @@ pub fn load_plugins(
     engine: &Engine,
     plugin_dir: &Path,
     pwd: &Path,
-    exec_cache: &Arc<ExecCache>,
+    exec_cache: &Rc<ExecCache>,
 ) -> Vec<WasmPlugin> {
-    if !plugin_dir.exists() {
-        return vec![];
-    }
     let Ok(entries) = std::fs::read_dir(plugin_dir) else {
         return vec![];
     };
@@ -473,13 +343,11 @@ pub fn load_plugins(
                 plugin = %path.file_stem().unwrap_or_default().to_string_lossy(),
             )
             .entered();
-            match WasmPlugin::load(engine, &bytes, pwd, Arc::clone(exec_cache)) {
-                Ok(plugin) => Some(plugin),
-                Err(err) => {
-                    tracing::error!("Failed to load plugin {}: {}", path.display(), err);
-                    None
-                }
-            }
+            WasmPlugin::load(engine, &bytes, pwd, Rc::clone(exec_cache))
+                .inspect_err(|error| {
+                    tracing::error!(path = %path.display(), %error, "failed to load plugin");
+                })
+                .ok()
         })
         .collect()
 }
@@ -487,7 +355,7 @@ pub fn load_plugins(
 #[cfg(any(test, feature = "testing"))]
 pub mod test_helpers {
     use std::path::PathBuf;
-    use std::sync::Arc;
+    use std::rc::Rc;
 
     use wasmtime::Module;
 
@@ -509,6 +377,7 @@ pub mod test_helpers {
         "/starship_plugin_vcs_test_harness.wasm"
     ));
 
+    /// A plugin loaded against its own temporary working directory.
     pub struct PluginFixture {
         pub dir: PathBuf,
         plugin: WasmPlugin,
@@ -517,12 +386,22 @@ pub mod test_helpers {
     }
 
     impl PluginFixture {
+        /// The general test plugin (`test`), which exercises every host function.
+        pub fn test_harness() -> Self {
+            Self::from_wasm(TEST_HARNESS_WASM)
+        }
+
+        /// The stub VCS plugin (`vcs-test`).
+        pub fn vcs_test_harness() -> Self {
+            Self::from_wasm(VCS_TEST_HARNESS_WASM)
+        }
+
         pub fn from_wasm(bytes: &[u8]) -> Self {
             let dir = tempfile::TempDir::new().expect("tempdir");
             let path = dir.path().to_path_buf();
             let engine = create_engine().expect("engine should build");
             let module = Module::new(&engine, bytes).expect("plugin should compile");
-            let cache = Arc::new(ExecCache::in_memory());
+            let cache = Rc::new(ExecCache::in_memory());
             let plugin =
                 WasmPlugin::from_module(&module, &path, cache).expect("plugin should load");
             Self {
@@ -533,33 +412,32 @@ pub mod test_helpers {
             }
         }
 
-        pub fn get(&mut self, field: &str) -> Option<String> {
-            self.plugin.update_context(&self.dir.clone());
-            let value = self.plugin.call_method(field).ok()?;
-            match value {
+        /// Calls a method in a fresh render, returning strings as-is and
+        /// other values as JSON.
+        pub fn get(&mut self, method: &str) -> Option<String> {
+            self.plugin.begin_render(&self.dir.clone());
+            match self.plugin.call_method(method) {
                 serde_json::Value::Null => None,
                 serde_json::Value::String(s) => Some(s),
                 other => Some(other.to_string()),
             }
         }
 
-        /// Calls the guest's `_plugin_is_applicable` export. Returns `true` (fail-open)
-        /// if the export is missing, traps, or returns malformed data.
         pub fn is_applicable(&mut self) -> bool {
-            self.plugin.update_context(&self.dir.clone());
+            self.plugin.begin_render(&self.dir.clone());
             self.plugin.is_applicable()
         }
 
-        pub fn kind(&mut self) -> String {
+        pub fn kind(&self) -> starship_plugin_core::PluginKind {
             self.plugin.kind()
         }
 
-        pub fn shadows(&mut self) -> Vec<String> {
-            self.plugin.shadows()
+        pub fn shadows(&self) -> Vec<String> {
+            self.plugin.shadows().to_vec()
         }
 
         pub fn detect_depth(&mut self) -> Option<u32> {
-            self.plugin.update_context(&self.dir.clone());
+            self.plugin.begin_render(&self.dir.clone());
             self.plugin.detect_depth()
         }
 
@@ -567,11 +445,11 @@ pub mod test_helpers {
             self.plugin.name()
         }
 
+        /// Renders `return <lua_expr>` with this plugin registered.
         pub fn render(&mut self, lua_expr: &str) -> String {
             use crate::config::{Config, ConfigLoader};
             use starship_common::ShellContext;
 
-            self.plugin.update_context(&self.dir.clone());
             let lua_src = format!(r"return {lua_expr}");
             let mut loader =
                 ConfigLoader::from_source_with_plugins(&lua_src, vec![self.plugin_for_loader()])
@@ -586,40 +464,23 @@ pub mod test_helpers {
         }
 
         fn plugin_for_loader(&self) -> WasmPlugin {
-            let cache = Arc::new(ExecCache::in_memory());
+            let cache = Rc::new(ExecCache::in_memory());
             WasmPlugin::from_module(&self.module, &self.dir, cache).expect("plugin should load")
         }
-    }
-
-    #[macro_export]
-    macro_rules! plugin_fixture {
-        () => {
-            $crate::plugin::test_helpers::PluginFixture::from_wasm(
-                $crate::plugin::test_helpers::TEST_HARNESS_WASM,
-            )
-        };
-    }
-
-    #[macro_export]
-    macro_rules! vcs_plugin_fixture {
-        () => {
-            $crate::plugin::test_helpers::PluginFixture::from_wasm(
-                $crate::plugin::test_helpers::VCS_TEST_HARNESS_WASM,
-            )
-        };
     }
 }
 
 #[cfg(test)]
 mod tests {
     use std::fs;
-    use std::sync::Arc;
+    use std::rc::Rc;
 
     use mlua::{Lua, LuaOptions, StdLib};
+    use starship_plugin_core::{HostRequest, HostResponse};
 
-    use super::{create_engine, load_plugins};
+    use super::test_helpers::PluginFixture;
+    use super::{HostState, PluginKind, create_engine, load_plugins};
     use crate::exec_cache::ExecCache;
-    use crate::plugin_fixture;
 
     #[test]
     fn sandboxed_luau_supports_index_metamethod() {
@@ -642,14 +503,32 @@ mod tests {
     }
 
     #[test]
-    fn plugin_loads_and_returns_name() {
-        let mut plugin = plugin_fixture!();
-        assert!(plugin.get("home").is_some());
+    fn host_answers_file_exists_relative_to_pwd() {
+        let dir = tempfile::tempdir().unwrap();
+        fs::write(dir.path().join("present"), "").unwrap();
+        let state = HostState {
+            pwd: dir.path().to_path_buf(),
+            exec_cache: Rc::new(ExecCache::in_memory()),
+            guest: None,
+        };
+        let exists = |path: &str| {
+            state.respond(HostRequest::FileExists {
+                path: path.to_string(),
+            })
+        };
+        assert_eq!(exists("present"), HostResponse::FileExists(true));
+        assert_eq!(exists("absent"), HostResponse::FileExists(false));
+    }
+
+    #[test]
+    fn plugin_loads_with_declared_name() {
+        let plugin = PluginFixture::test_harness();
+        assert_eq!(plugin.name(), "test");
     }
 
     #[test]
     fn unknown_method_returns_null() {
-        let mut plugin = plugin_fixture!();
+        let mut plugin = PluginFixture::test_harness();
         assert!(plugin.get("does_not_exist").is_none());
     }
 
@@ -658,20 +537,20 @@ mod tests {
         let dir = tempfile::tempdir().expect("tempdir");
         let plugin_dir = tempfile::tempdir().expect("plugin dir");
         let engine = create_engine().unwrap();
-        let cache = Arc::new(ExecCache::in_memory());
+        let cache = Rc::new(ExecCache::in_memory());
         let plugins = load_plugins(&engine, plugin_dir.path(), dir.path(), &cache);
         assert!(plugins.is_empty());
     }
 
     #[test]
     fn host_get_env() {
-        let mut plugin = plugin_fixture!();
+        let mut plugin = PluginFixture::test_harness();
         assert!(plugin.get("home").is_some());
     }
 
     #[test]
     fn host_exec() {
-        let mut plugin = plugin_fixture!();
+        let mut plugin = PluginFixture::test_harness();
         let pwd = plugin.get("pwd").expect("pwd should return a string");
         let actual = std::fs::canonicalize(&pwd).expect("pwd output resolves");
         let expected = std::fs::canonicalize(&plugin.dir).expect("tempdir path resolves");
@@ -680,7 +559,7 @@ mod tests {
 
     #[test]
     fn is_applicable_reflects_file_exists() {
-        let mut plugin = plugin_fixture!();
+        let mut plugin = PluginFixture::test_harness();
         assert!(!plugin.is_applicable());
 
         fs::write(plugin.dir.join(".starship-test-marker"), "").unwrap();
@@ -688,38 +567,28 @@ mod tests {
     }
 
     #[test]
-    fn export_plugin_emits_general_kind() {
-        let mut plugin = plugin_fixture!();
-        assert_eq!(plugin.kind(), "general");
-    }
-
-    #[test]
-    fn export_plugin_emits_empty_shadows() {
-        let mut plugin = plugin_fixture!();
+    fn general_plugin_reports_general_kind_and_no_shadows() {
+        let plugin = PluginFixture::test_harness();
+        assert_eq!(plugin.kind(), PluginKind::General);
         assert_eq!(plugin.shadows(), Vec::<String>::new());
     }
 
     #[test]
     fn vcs_plugin_loads_with_declared_name() {
-        let plugin = crate::vcs_plugin_fixture!();
+        let plugin = PluginFixture::vcs_test_harness();
         assert_eq!(plugin.name(), "vcs-test");
     }
 
     #[test]
-    fn export_vcs_plugin_emits_vcs_kind() {
-        let mut plugin = crate::vcs_plugin_fixture!();
-        assert_eq!(plugin.kind(), "vcs");
-    }
-
-    #[test]
-    fn export_vcs_plugin_emits_declared_shadows() {
-        let mut plugin = crate::vcs_plugin_fixture!();
+    fn vcs_plugin_reports_vcs_kind_and_shadows() {
+        let plugin = PluginFixture::vcs_test_harness();
+        assert_eq!(plugin.kind(), PluginKind::Vcs);
         assert_eq!(plugin.shadows(), vec!["other-vcs".to_string()]);
     }
 
     #[test]
-    fn export_vcs_plugin_synthesizes_is_applicable_from_detect_depth() {
-        let mut plugin = crate::vcs_plugin_fixture!();
+    fn vcs_plugin_is_applicable_when_detected() {
+        let mut plugin = PluginFixture::vcs_test_harness();
         assert!(!plugin.is_applicable());
 
         fs::write(plugin.dir.join(".vcs-test-marker"), "").unwrap();
@@ -727,8 +596,8 @@ mod tests {
     }
 
     #[test]
-    fn export_vcs_plugin_emits_detect_depth_export() {
-        let mut plugin = crate::vcs_plugin_fixture!();
+    fn vcs_plugin_reports_detect_depth() {
+        let mut plugin = PluginFixture::vcs_test_harness();
         assert_eq!(plugin.detect_depth(), None);
 
         fs::write(plugin.dir.join(".vcs-test-marker"), "").unwrap();
@@ -736,15 +605,15 @@ mod tests {
     }
 
     #[test]
-    fn export_vcs_plugin_call_routes_root_and_branch_to_trait() {
-        let mut plugin = crate::vcs_plugin_fixture!();
+    fn vcs_plugin_routes_root_and_branch_to_trait() {
+        let mut plugin = PluginFixture::vcs_test_harness();
         assert_eq!(plugin.get("root").as_deref(), Some("/tmp/vcs-test"));
         assert_eq!(plugin.get("branch").as_deref(), Some("main"));
     }
 
     #[test]
-    fn export_vcs_plugin_call_routes_inherent_methods() {
-        let mut plugin = crate::vcs_plugin_fixture!();
+    fn vcs_plugin_routes_inherent_methods() {
+        let mut plugin = PluginFixture::vcs_test_harness();
         assert_eq!(plugin.get("change_id").as_deref(), Some("stub-change-id"));
     }
 }

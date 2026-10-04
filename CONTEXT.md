@@ -8,7 +8,7 @@ Rust rewrite of Starship structured around WASM plugins loaded at runtime. The d
 A WASM module that exposes data to the prompt config (e.g. `nodejs.version`). Has a unique `NAME`, an `is_applicable()` gate, and a set of exported methods.
 
 **VCS plugin**:
-A plugin that implements a version control system backend. Implements the `VcsPlugin` trait — a separate, parallel trait to `Plugin` (not a sub-trait). VCS plugins don't carry a generic `is_applicable()` gate; their gate is `detect_depth().is_some()`, derived by the macro at the WASM ABI layer. The MVP targets git, jj, hg, pijul, and fossil.
+A plugin that implements a version control system backend. Implements the `VcsPlugin` trait — a separate, parallel trait to `Plugin` (not a sub-trait). VCS plugins don't carry a generic `is_applicable()` gate; their gate is `detect_depth().is_some()`, derived by the SDK when it answers the host's `IsApplicable` request. The MVP targets git, jj, hg, pijul, and fossil.
 _Avoid_: VCS module, VCS backend (when referring to the plugin itself; "backend" is fine for the underlying tool)
 
 **Active VCS**:

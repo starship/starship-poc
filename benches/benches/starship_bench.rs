@@ -5,7 +5,7 @@ use starship_daemon::handle_client;
 use starship_runtime::plugin::test_helpers::{PluginFixture, TEST_HARNESS_WASM};
 use starship_runtime::plugin::{self, WasmPlugin};
 use starship_runtime::{ConfigLoader, ExecCache};
-use std::{os::unix::net::UnixStream, path::PathBuf, sync::Arc};
+use std::{os::unix::net::UnixStream, path::PathBuf, rc::Rc};
 
 mod config;
 
@@ -93,7 +93,7 @@ fn plugin_load() {
             &engine,
             TEST_HARNESS_WASM,
             dir.path(),
-            Arc::new(ExecCache::in_memory()),
+            Rc::new(ExecCache::in_memory()),
         )
         .unwrap(),
     );
@@ -101,7 +101,7 @@ fn plugin_load() {
 
 #[divan::bench]
 fn plugin_call_method(bencher: Bencher) {
-    let mut fixture = PluginFixture::from_wasm(TEST_HARNESS_WASM);
+    let mut fixture = PluginFixture::test_harness();
     std::fs::write(fixture.dir.join(".starship-test-marker"), "").unwrap();
     bencher.bench_local(|| {
         black_box(fixture.get("home"));
@@ -110,7 +110,7 @@ fn plugin_call_method(bencher: Bencher) {
 
 #[divan::bench]
 fn config_with_plugins(bencher: Bencher) {
-    let mut fixture = PluginFixture::from_wasm(TEST_HARNESS_WASM);
+    let mut fixture = PluginFixture::test_harness();
     std::fs::write(fixture.dir.join(".starship-test-marker"), "").unwrap();
     bencher.bench_local(|| {
         black_box(fixture.render(PLUGIN_EXPR));

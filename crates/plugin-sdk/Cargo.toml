@@ -5,6 +5,7 @@ edition.workspace = true
 rust-version.workspace = true
 
 [dependencies]
+serde.workspace = true
 serde_json.workspace = true
 starship-plugin-core.workspace = true
 starship-plugin-macros.workspace = true

@@ -1,46 +1,23 @@
 //! Host functions for querying the daemon.
+//!
+//! Every call is one [`HostRequest`] sent through the `_host_handle` import.
+//! The host answers from the current render: its working directory, and the
+//! exec cache for cached commands.
 
-#[cfg(target_arch = "wasm32")]
-use crate::{read_msg, write_msg};
+use starship_plugin_core::{HostRequest, HostResponse};
 
-#[cfg(target_arch = "wasm32")]
-#[link(wasm_import_module = "env")]
-unsafe extern "C" {
-    fn _plugin_host_get_env(packed: u64) -> u64;
-    fn _plugin_host_exec(packed: u64) -> u64;
-    fn _plugin_host_exec_uncached(packed: u64) -> u64;
-    fn _plugin_host_file_exists(packed: u64) -> u32;
-}
-
-/// Get the provided env variable
+/// Get the provided env variable.
 pub fn get_env(name: &str) -> Option<String> {
-    #[cfg(target_arch = "wasm32")]
-    {
-        let packed_input = write_msg(&name.to_string());
-        let packed_output = unsafe { _plugin_host_get_env(packed_input) };
-        unsafe { read_msg(packed_output) }
-    }
-    #[cfg(not(target_arch = "wasm32"))]
-    {
-        let _ = name;
-        panic!("host functions only available in WASM");
+    match send(&HostRequest::Env { name: name.into() }) {
+        HostResponse::Env(value) => value,
+        _ => None,
     }
 }
 
-/// Execute the provided command
+/// Execute the provided command, reusing a cached result when the binary and
+/// arguments are unchanged.
 pub fn exec(cmd: &str, args: &[&str]) -> Option<String> {
-    #[cfg(target_arch = "wasm32")]
-    {
-        let request = (cmd, args);
-        let packed_input = write_msg(&request);
-        let packed_output = unsafe { _plugin_host_exec(packed_input) };
-        unsafe { read_msg(packed_output) }
-    }
-    #[cfg(not(target_arch = "wasm32"))]
-    {
-        let _ = (cmd, args);
-        panic!("host functions only available in WASM");
-    }
+    run(cmd, args, true)
 }
 
 /// Execute the provided command without caching the result.
@@ -48,30 +25,43 @@ pub fn exec(cmd: &str, args: &[&str]) -> Option<String> {
 /// Use for commands whose output depends on state beyond the binary itself
 /// (e.g. `git branch`, `pwd`).
 pub fn exec_uncached(cmd: &str, args: &[&str]) -> Option<String> {
-    #[cfg(target_arch = "wasm32")]
-    {
-        let request = (cmd, args);
-        let packed_input = write_msg(&request);
-        let packed_output = unsafe { _plugin_host_exec_uncached(packed_input) };
-        unsafe { read_msg(packed_output) }
-    }
-    #[cfg(not(target_arch = "wasm32"))]
-    {
-        let _ = (cmd, args);
-        panic!("host functions only available in WASM");
+    run(cmd, args, false)
+}
+
+/// Check whether the provided path, relative to the working directory, exists.
+pub fn file_exists(path: &str) -> bool {
+    matches!(
+        send(&HostRequest::FileExists { path: path.into() }),
+        HostResponse::FileExists(true)
+    )
+}
+
+fn run(cmd: &str, args: &[&str], cached: bool) -> Option<String> {
+    let request = HostRequest::Exec {
+        cmd: cmd.into(),
+        args: args.iter().map(ToString::to_string).collect(),
+        cached,
+    };
+    match send(&request) {
+        HostResponse::Exec(output) => output,
+        _ => None,
     }
 }
 
-/// Check whether the provided file path exists
-pub fn file_exists(path: &str) -> bool {
-    #[cfg(target_arch = "wasm32")]
-    {
-        let packed_input = write_msg(&path.to_string());
-        unsafe { _plugin_host_file_exists(packed_input) != 0 }
+#[cfg(target_arch = "wasm32")]
+fn send(request: &HostRequest) -> HostResponse {
+    #[link(wasm_import_module = "env")]
+    unsafe extern "C" {
+        fn _host_handle(packed: u64) -> u64;
     }
-    #[cfg(not(target_arch = "wasm32"))]
-    {
-        let _ = path;
-        panic!("host functions only available in WASM");
-    }
+
+    let packed = starship_plugin_core::write_msg(request);
+    // SAFETY: the host answers with bytes it wrote with our `alloc`.
+    unsafe { starship_plugin_core::read_msg(_host_handle(packed)) }
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn send(request: &HostRequest) -> HostResponse {
+    let _ = request;
+    panic!("host functions are only available inside a WASM plugin");
 }
