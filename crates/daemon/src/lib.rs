@@ -57,8 +57,35 @@ mod tests {
     }
 
     #[test]
+    fn daemon_answers_raw_json_requests_like_the_readme_nc_example() {
+        use starship_common::styled::StyledContent;
+        use std::io::Read;
+
+        let source = r#"return ctx.pwd .. " " .. (ctx.user or "nobody")"#;
+        let mut loader = ConfigLoader::from_source(source).unwrap();
+        let (mut client, server) = UnixStream::pair().unwrap();
+        client
+            .write_all(b"{\"pwd\":\"/tmp\",\"env\":{\"USER\":\"u\"}}\n{\"pwd\":\"/tmp\"}\n")
+            .unwrap();
+        client.shutdown(std::net::Shutdown::Write).unwrap();
+        handle_client(server, &mut loader).unwrap();
+
+        let mut output = String::new();
+        client.read_to_string(&mut output).unwrap();
+        let prompts: Vec<String> = output
+            .lines()
+            .map(|line| {
+                serde_json::from_str::<StyledContent>(line)
+                    .unwrap()
+                    .to_string()
+            })
+            .collect();
+        assert_eq!(prompts, ["/tmp u", "/tmp nobody"]);
+    }
+
+    #[test]
     fn daemon_serves_prompt_with_plugin_data() {
-        let plugin = PluginFixture::test_harness();
+        let plugin = PluginFixture::test_plugin();
         std::fs::write(plugin.dir.join(".starship-test-marker"), "").unwrap();
         let result = plugin.render(r#"test.home or "none""#);
         assert_ne!(result, "");
@@ -67,7 +94,7 @@ mod tests {
 
     #[test]
     fn plugin_method_returns_nil_when_inapplicable() {
-        let plugin = PluginFixture::test_harness();
+        let plugin = PluginFixture::test_plugin();
         let result = plugin.render(r#"test.home or "inapplicable""#);
         assert_eq!(result, "inapplicable");
     }

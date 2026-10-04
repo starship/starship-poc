@@ -1,8 +1,8 @@
 //! Answers daemon requests on behalf of a plugin.
 //!
-//! `#[export_plugin]` and `#[export_vcs_plugin]` implement [`Methods`] for the
-//! plugin and generate a `main` that runs [`serve`] with [`handle_plugin`] or
-//! [`handle_vcs_plugin`]. Not part of the public API.
+//! `#[export_plugin]` and `#[export_vcs_plugin]` implement [`Methods`] and
+//! [`Handler`] for the plugin, and generate a `main` that runs [`serve`]. Not
+//! part of the public API.
 
 use std::collections::HashMap;
 use std::io::{self, BufRead, Write};
@@ -11,9 +11,8 @@ use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
 use serde::Serialize;
 use serde_json::Value;
-use starship_plugin_core::{
-    ABI_VERSION, Manifest, Message, PluginKind, RenderContext, Request, Response,
-};
+use starship_plugin_core::{ABI_VERSION, Manifest, Message, PluginKind, RenderContext};
+pub use starship_plugin_core::{Request, Response};
 
 use crate::{Ctx, Plugin, VcsPlugin, exec_cache};
 
@@ -30,6 +29,13 @@ pub trait Methods {
 /// serialize become `Null`.
 pub fn to_value<T: Serialize>(value: T) -> Value {
     serde_json::to_value(value).unwrap_or(Value::Null)
+}
+
+/// Answers the daemon's requests for one plugin. The export macros implement
+/// it with [`handle_plugin`] or [`handle_vcs_plugin`].
+pub trait Handler {
+    /// Answers one request. `EndRender` gets no response.
+    fn handle(&self, renders: &Renders, request: Request) -> Option<Response>;
 }
 
 /// The renders a plugin has begun and not yet ended, by render ID.
@@ -131,9 +137,14 @@ pub fn handle_vcs_plugin<P: VcsPlugin + Methods>(
 
 /// Answers requests from stdin on stdout until the daemon closes stdin.
 /// Called by the generated `main`.
-pub fn serve(mut handle: impl FnMut(Request) -> Option<Response>) {
-    let mut stdout = io::stdout().lock();
-    for line in io::stdin().lock().lines() {
+pub fn serve(plugin: &impl Handler) {
+    serve_io(plugin, io::stdin().lock(), io::stdout().lock());
+}
+
+/// Answers requests read from `input` on `output` until `input` ends.
+pub fn serve_io(plugin: &impl Handler, input: impl BufRead, mut output: impl Write) {
+    let renders = Renders::default();
+    for line in input.lines() {
         let Ok(line) = line else {
             break;
         };
@@ -144,14 +155,14 @@ pub fn serve(mut handle: impl FnMut(Request) -> Option<Response>) {
                 continue;
             }
         };
-        let Some(body) = handle(request.body) else {
+        let Some(body) = plugin.handle(&renders, request.body) else {
             continue;
         };
         let response = Message {
             id: request.id,
             body,
         };
-        if write_line(&mut stdout, &response).is_err() {
+        if write_line(&mut output, &response).is_err() {
             break;
         }
     }

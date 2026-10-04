@@ -13,11 +13,13 @@ serde.workspace = true
 serde_json.workspace = true
 starship-common.workspace = true
 starship-plugin-core.workspace = true
+starship-plugin-sdk = { workspace = true, optional = true }
 tempfile = { workspace = true, optional = true }
 tracing.workspace = true
 
 [features]
-testing = ["dep:tempfile"]
+# `PluginFixture` and in-process plugins, for tests in other crates.
+testing = ["dep:tempfile", "dep:starship-plugin-sdk"]
 
 [build-dependencies]
 phf_codegen = "0.11"
@@ -25,6 +27,7 @@ serde_json.workspace = true
 
 [dev-dependencies]
 filetime = "0.2.27"
+starship-plugin-sdk.workspace = true
 tempfile.workspace = true
 
 [lints]

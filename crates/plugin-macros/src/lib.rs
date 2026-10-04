@@ -26,8 +26,8 @@ pub fn export_vcs_plugin(_attr: TokenStream, item: TokenStream) -> TokenStream {
     export(impl_block, &quote!(handle_vcs_plugin))
 }
 
-/// Generates the method table and a `main` that answers the daemon's
-/// requests. The request handling itself lives in
+/// Generates the method table, the `Handler` impl, and a `main` that answers
+/// the daemon's requests. The request handling itself lives in
 /// `starship_plugin_sdk::dispatch`.
 fn export(mut impl_block: ItemImpl, handler: &proc_macro2::TokenStream) -> TokenStream {
     // Exported methods must take `&self` so the dispatcher can call them,
@@ -65,12 +65,19 @@ fn export(mut impl_block: ItemImpl, handler: &proc_macro2::TokenStream) -> Token
             }
         }
 
+        impl ::starship_plugin_sdk::dispatch::Handler for #struct_type {
+            fn handle(
+                &self,
+                renders: &::starship_plugin_sdk::dispatch::Renders,
+                request: ::starship_plugin_sdk::dispatch::Request,
+            ) -> ::core::option::Option<::starship_plugin_sdk::dispatch::Response> {
+                ::starship_plugin_sdk::dispatch::#handler(self, renders, request)
+            }
+        }
+
         fn main() {
             let plugin = <#struct_type as ::core::default::Default>::default();
-            let renders = ::starship_plugin_sdk::dispatch::Renders::default();
-            ::starship_plugin_sdk::dispatch::serve(|request| {
-                ::starship_plugin_sdk::dispatch::#handler(&plugin, &renders, request)
-            });
+            ::starship_plugin_sdk::dispatch::serve(&plugin);
         }
     })
 }

@@ -7,5 +7,9 @@ rust-version.workspace = true
 [dependencies]
 starship-plugin-sdk.workspace = true
 
+[dev-dependencies]
+starship-plugin-sdk = { workspace = true, features = ["testing"] }
+starship-runtime = { workspace = true, features = ["testing"] }
+
 [lints]
 workspace = true

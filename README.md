@@ -11,16 +11,15 @@ This repo is meant to serve as a proof of concept for a new architecture for Sta
 
 - [x] Create daemon for plugin and config loading
 - [x] Use lua for programmatic configuration
-  - [ ] Have lua values use metamethods to query WASM plugin
-- [ ] Use WASM for plugins
+  - [x] Have lua values use metamethods to query plugins
+- [x] Run plugins as native processes
   - [ ] Create plugin SDK for opinionated:
-    - [ ] Authoring 
-    - [ ] Testing
-  - [ ] Have wasm bytecode compile to native and cached on disk
+    - [ ] Authoring
+    - [x] Testing
 - [ ] Have modules generate lua types on load
 - [ ] Budget: 16.67ms (60fps) or 8.33ms (120fps)
 - [x] Daemon responds to `nc` for other shell prompts to use:
-      `echo '{"pwd":"'$PWD'","user":"'$USER'"}' | nc -U ~/.config/starship/starship.sock`
+      `echo '{"pwd":"'$PWD'","env":{"USER":"'$USER'"}}' | nc -U ~/.config/starship/starship.sock`
 - [x] Cache binary output keyed by resolved path, size, and mtime
 - [ ] Have modules enable based on repo root
 

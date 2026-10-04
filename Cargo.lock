@@ -909,7 +909,6 @@ dependencies = [
  "starship-common",
  "starship-daemon",
  "starship-runtime",
- "tempfile",
 ]
 
 [[package]]
@@ -965,6 +964,7 @@ dependencies = [
  "serde",
  "serde_json",
  "starship-plugin-sdk",
+ "starship-runtime",
 ]
 
 [[package]]
@@ -983,7 +983,11 @@ dependencies = [
 name = "starship-plugin-test-harness"
 version = "0.1.0"
 dependencies = [
+ "codspeed-divan-compat",
+ "serde_json",
  "starship-plugin-sdk",
+ "starship-runtime",
+ "tempfile",
 ]
 
 [[package]]
@@ -991,6 +995,7 @@ name = "starship-plugin-vcs-test-harness"
 version = "0.1.0"
 dependencies = [
  "starship-plugin-sdk",
+ "starship-runtime",
 ]
 
 [[package]]
@@ -1006,6 +1011,7 @@ dependencies = [
  "serde_json",
  "starship-common",
  "starship-plugin-core",
+ "starship-plugin-sdk",
  "tempfile",
  "tracing",
 ]

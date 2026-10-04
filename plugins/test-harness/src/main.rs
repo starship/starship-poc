@@ -2,8 +2,9 @@ use starship_plugin_sdk::{Ctx, Plugin, export_plugin};
 
 /// Test plugin that exercises every `Ctx` helper.
 ///
-/// Used by runtime tests to check what plugins can see of the render,
-/// without depending on external tools like `node`.
+/// Its end-to-end tests and benches check process-level behavior (startup,
+/// discovery, crashes, exit on EOF) against the real binary, without
+/// depending on external tools like `node`.
 #[derive(Default)]
 struct TestPlugin;
 
@@ -35,5 +36,42 @@ impl TestPlugin {
     /// Runs `pwd`, returning the directory commands run in.
     pub fn pwd(&self, ctx: &Ctx) -> Option<String> {
         ctx.exec_uncached("pwd", &[]).map(|s| s.trim().to_string())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use starship_plugin_sdk::assert_plugin;
+    use starship_plugin_sdk::testing::{self, TestCtx};
+
+    use super::TestPlugin;
+
+    #[test]
+    fn applies_when_the_marker_exists() {
+        assert!(!testing::applicable(&TestPlugin, &TestCtx::new()));
+        let marked = TestCtx::new().file(".starship-test-marker", "");
+        assert!(testing::applicable(&TestPlugin, &marked));
+    }
+
+    #[test]
+    fn reads_env_from_the_render() {
+        let ctx = TestCtx::new()
+            .env("HOME", "/home/shell")
+            .env("USER", "shell");
+        assert_plugin!(TestPlugin, ctx,
+            "home" => Some("/home/shell"),
+            "user" => Some("shell"),
+        );
+        assert_plugin!(TestPlugin, TestCtx::new(), "home" => None::<&str>);
+    }
+
+    #[test]
+    fn commands_run_in_the_render_pwd() {
+        let ctx = TestCtx::new();
+        assert_plugin!(TestPlugin, ctx, "dir" => ctx.pwd());
+
+        let pwd = testing::read(&TestPlugin, &ctx, "pwd");
+        let pwd = std::fs::canonicalize(pwd.as_str().expect("pwd output")).unwrap();
+        assert_eq!(pwd, std::fs::canonicalize(ctx.pwd()).unwrap());
     }
 }

@@ -7,12 +7,11 @@ publish = false
 
 [dev-dependencies]
 anyhow.workspace = true
-divan = { version = "4", package = "codspeed-divan-compat" }
+divan.workspace = true
 starship.workspace = true
 starship-common.workspace = true
 starship-daemon.workspace = true
-starship-runtime = { workspace = true, features = ["testing"] }
-tempfile.workspace = true
+starship-runtime.workspace = true
 
 [[bench]]
 name = "starship_bench"

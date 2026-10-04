@@ -1,0 +1,10 @@
+# Plugins see the shell through `Ctx`. Their own process belongs to the
+# daemon, so its environment and cwd are the daemon's, not the shell's.
+disallowed-methods = [
+    { path = "std::process::Command::new", reason = "use `ctx.exec` or `ctx.exec_uncached`, which run with the shell's PATH, env and pwd" },
+    { path = "std::env::var", reason = "use `ctx.env`: the plugin's own environment is the daemon's, not the shell's" },
+    { path = "std::env::var_os", reason = "use `ctx.env`: the plugin's own environment is the daemon's, not the shell's" },
+    { path = "std::env::vars", reason = "use `ctx.env`: the plugin's own environment is the daemon's, not the shell's" },
+    { path = "std::env::current_dir", reason = "use `ctx.pwd` or `ctx.path`: the plugin's cwd is the daemon's, not the shell's" },
+    { path = "std::env::set_current_dir", reason = "use `ctx.path`: plugins answer renders with different pwds at once" },
+]

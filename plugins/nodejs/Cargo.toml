@@ -9,5 +9,9 @@ serde.workspace = true
 serde_json.workspace = true
 starship-plugin-sdk.workspace = true
 
+[dev-dependencies]
+starship-plugin-sdk = { workspace = true, features = ["testing"] }
+starship-runtime = { workspace = true, features = ["testing"] }
+
 [lints]
 workspace = true

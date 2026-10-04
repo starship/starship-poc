@@ -18,3 +18,30 @@ impl NodejsPlugin {
             .map(|v| v.trim().trim_start_matches('v').to_string())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use starship_plugin_sdk::assert_plugin;
+    use starship_plugin_sdk::testing::{self, TestCtx};
+
+    use super::NodejsPlugin;
+
+    #[test]
+    fn applies_when_package_json_exists() {
+        assert!(!testing::applicable(&NodejsPlugin, &TestCtx::new()));
+        let project = TestCtx::new().file("package.json", "{}");
+        assert!(testing::applicable(&NodejsPlugin, &project));
+    }
+
+    #[test]
+    fn reads_the_version_without_the_v() {
+        let ctx = TestCtx::new().command("node", "v20.1.0");
+        assert_plugin!(NodejsPlugin, ctx, "version" => Some("20.1.0"));
+    }
+
+    #[test]
+    fn version_is_nil_without_node() {
+        let ctx = TestCtx::new().env("PATH", "/nonexistent");
+        assert_plugin!(NodejsPlugin, ctx, "version" => None::<&str>);
+    }
+}

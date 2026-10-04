@@ -1,7 +1,7 @@
 use starship_plugin_sdk::{Ctx, VcsPlugin, export_vcs_plugin};
 
-/// Stub VCS plugin used by runtime tests to exercise the `#[export_vcs_plugin]`
-/// surface without depending on a real VCS like git.
+/// Stub VCS plugin that exercises the `#[export_vcs_plugin]` surface without
+/// depending on a real VCS like git.
 ///
 /// `detect_depth` returns `Some(0)` when `.vcs-test-marker` is present in the
 /// render's pwd, `None` otherwise, letting tests flip the gate at will.
@@ -29,5 +29,30 @@ impl VcsPlugin for VcsTestPlugin {
 impl VcsTestPlugin {
     pub fn change_id(&self) -> String {
         "stub-change-id".to_string()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use starship_plugin_sdk::assert_plugin;
+    use starship_plugin_sdk::testing::{self, TestCtx};
+
+    use super::VcsTestPlugin;
+
+    #[test]
+    fn detects_at_depth_zero_with_the_marker() {
+        assert_eq!(testing::depth(&VcsTestPlugin, &TestCtx::new()), None);
+        let marked = TestCtx::new().file(".vcs-test-marker", "");
+        assert_eq!(testing::depth(&VcsTestPlugin, &marked), Some(0));
+        assert!(testing::applicable(&VcsTestPlugin, &marked));
+    }
+
+    #[test]
+    fn routes_trait_and_inherent_methods() {
+        assert_plugin!(VcsTestPlugin, TestCtx::new(),
+            "root" => Some("/tmp/vcs-test"),
+            "branch" => Some("main"),
+            "change_id" => "stub-change-id",
+        );
     }
 }

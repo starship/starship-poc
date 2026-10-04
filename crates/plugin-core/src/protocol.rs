@@ -29,7 +29,9 @@ pub const ABI_VERSION: u32 = 4;
 pub struct RenderContext {
     /// The shell's working directory.
     pub pwd: PathBuf,
-    /// The shell's environment variables.
+    /// The shell's environment variables. Clients that send none (e.g. a
+    /// prompt calling the daemon through `nc`) get an empty environment.
+    #[serde(default)]
     pub env: HashMap<String, String>,
 }
 

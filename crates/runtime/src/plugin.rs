@@ -1,30 +1,38 @@
 use std::cell::RefCell;
 use std::collections::HashMap;
-use std::io::{BufRead, BufReader, Write};
+use std::io::{BufRead, BufReader, Read, Write};
 use std::path::{Path, PathBuf};
-use std::process::{Child, ChildStderr, ChildStdin, ChildStdout, Command, Stdio};
+use std::process::{Child, ChildStderr, Command, Stdio};
 use std::rc::Rc;
 
 use anyhow::{Context, Result, bail, ensure};
 use mlua::{Lua, LuaSerdeExt, Table};
 use serde_json::Value;
-use starship_plugin_core::{
-    ABI_VERSION, Manifest, Message, PluginKind, RenderContext, Request, Response,
-};
+pub use starship_plugin_core::PluginKind;
+use starship_plugin_core::{ABI_VERSION, Manifest, Message, RenderContext, Request, Response};
 use tracing::instrument;
 
 /// Plugin executables are named with this prefix, which keeps the daemon from
 /// spawning unrelated binaries that share the plugin dir (e.g. `target/debug`).
 const PLUGIN_PREFIX: &str = "starship-plugin-";
 
-/// The daemon's ends of a plugin's stdin and stdout.
+/// The daemon's ends of a plugin's stdin and stdout: a child process's pipes,
+/// or, in tests, pipes to a plugin served on a thread.
 struct Pipes {
-    stdin: ChildStdin,
-    stdout: BufReader<ChildStdout>,
+    stdin: Box<dyn Write + Send>,
+    stdout: BufReader<Box<dyn Read + Send>>,
     next_id: u64,
 }
 
 impl Pipes {
+    fn new(stdin: impl Write + Send + 'static, stdout: impl Read + Send + 'static) -> Self {
+        Self {
+            stdin: Box::new(stdin),
+            stdout: BufReader::new(Box::new(stdout)),
+            next_id: 0,
+        }
+    }
+
     /// Writes one request, returning its ID.
     fn write(&mut self, request: &Request) -> Result<u64> {
         let id = self.next_id;
@@ -88,7 +96,8 @@ impl RequestCounts {
 /// The plugin's [`Manifest`] is read once at startup, so its name, kind, and
 /// methods are plain fields afterward.
 pub struct PluginProcess {
-    child: Child,
+    /// `None` for a plugin served in-process by tests.
+    child: Option<Child>,
     /// `None` only while dropping, so stdin closes before the process is
     /// reaped.
     pipes: Option<Pipes>,
@@ -111,12 +120,45 @@ impl PluginProcess {
         if let Some(stderr) = child.stderr.take() {
             forward_stderr(label.into_owned(), stderr);
         }
-        let mut pipes = Pipes {
-            stdin: child.stdin.take().context("plugin stdin")?,
-            stdout: BufReader::new(child.stdout.take().context("plugin stdout")?),
-            next_id: 0,
-        };
+        let pipes = Pipes::new(
+            child.stdin.take().context("plugin stdin")?,
+            child.stdout.take().context("plugin stdout")?,
+        );
+        Self::connect(pipes, Some(child), cache_dir)
+    }
 
+    /// Serves `plugin` on a thread, connected through OS pipes, so tests can
+    /// exercise the protocol without building plugin binaries.
+    #[cfg(any(test, feature = "testing"))]
+    pub fn in_process<P>(plugin: P) -> Result<Self>
+    where
+        P: starship_plugin_sdk::dispatch::Handler + Send + 'static,
+    {
+        let (request_reader, request_writer) = std::io::pipe()?;
+        let (response_reader, response_writer) = std::io::pipe()?;
+        std::thread::Builder::new()
+            .name("in-process-plugin".into())
+            .spawn(move || {
+                starship_plugin_sdk::dispatch::serve_io(
+                    &plugin,
+                    BufReader::new(request_reader),
+                    response_writer,
+                );
+            })?;
+        Self::connect(Pipes::new(request_writer, response_reader), None, None)
+    }
+
+    /// Kills the plugin's process, as if it crashed.
+    #[cfg(any(test, feature = "testing"))]
+    pub fn kill(&mut self) {
+        if let Some(child) = &mut self.child {
+            let _ = child.kill();
+            let _ = child.wait();
+        }
+    }
+
+    /// Reads the plugin's manifest over `pipes` and checks its ABI version.
+    fn connect(mut pipes: Pipes, child: Option<Child>, cache_dir: Option<&Path>) -> Result<Self> {
         let request = Request::Describe {
             cache_dir: cache_dir.map(Path::to_path_buf),
         };
@@ -220,8 +262,10 @@ impl Drop for PluginProcess {
     fn drop(&mut self) {
         // Closing stdin asks the plugin to exit; kill it in case it doesn't.
         drop(self.pipes.take());
-        let _ = self.child.kill();
-        let _ = self.child.wait();
+        if let Some(child) = &mut self.child {
+            let _ = child.kill();
+            let _ = child.wait();
+        }
     }
 }
 
@@ -402,16 +446,15 @@ fn is_executable(path: &Path) -> bool {
 pub mod test_helpers {
     use std::path::{Path, PathBuf};
 
-    use starship_plugin_core::RenderContext;
+    use serde_json::Value;
+    use starship_plugin_core::{PluginKind, RenderContext, Request, Response};
+    use starship_plugin_sdk::dispatch::{
+        Handler, Methods, Renders, handle_plugin, handle_vcs_plugin, to_value,
+    };
+    use starship_plugin_sdk::{Ctx, Plugin, VcsPlugin};
 
-    use super::PluginProcess;
+    use super::{Applicability, PluginProcess};
     use crate::config::ConfigLoader;
-
-    /// The workspace's built plugin executable named `package`, e.g.
-    /// `starship-plugin-test-harness`.
-    pub fn plugin_binary(package: &str) -> PathBuf {
-        Path::new(env!("PLUGIN_BIN_DIR")).join(format!("{package}{}", std::env::consts::EXE_SUFFIX))
-    }
 
     /// A render context for `pwd` with the test process's environment.
     pub fn render_context(pwd: &Path) -> RenderContext {
@@ -421,33 +464,111 @@ pub mod test_helpers {
         }
     }
 
+    /// A general plugin named `test`, served in-process. It applies when
+    /// `.starship-test-marker` exists in pwd, and reads `HOME`, `USER` and pwd
+    /// from the render context.
+    #[derive(Default)]
+    pub struct TestPlugin;
+
+    impl Plugin for TestPlugin {
+        const NAME: &str = "test";
+
+        fn is_applicable(&self, ctx: &Ctx) -> bool {
+            ctx.file_exists(".starship-test-marker")
+        }
+    }
+
+    impl Methods for TestPlugin {
+        const METHODS: &'static [&'static str] = &["home", "user", "dir"];
+
+        fn call(&self, method: &str, ctx: &Ctx) -> Value {
+            match method {
+                "home" => to_value(ctx.env("HOME")),
+                "user" => to_value(ctx.env("USER")),
+                "dir" => to_value(ctx.pwd()),
+                _ => Value::Null,
+            }
+        }
+    }
+
+    impl Handler for TestPlugin {
+        fn handle(&self, renders: &Renders, request: Request) -> Option<Response> {
+            handle_plugin(self, renders, request)
+        }
+    }
+
+    /// A VCS plugin named `vcs-test`, served in-process. It detects at depth
+    /// 0 when `.vcs-test-marker` exists in pwd and shadows `other-vcs`.
+    #[derive(Default)]
+    pub struct VcsTestPlugin;
+
+    impl VcsPlugin for VcsTestPlugin {
+        const NAME: &'static str = "vcs-test";
+        const SHADOWS: &'static [&'static str] = &["other-vcs"];
+
+        fn detect_depth(&self, ctx: &Ctx) -> Option<u32> {
+            ctx.file_exists(".vcs-test-marker").then_some(0)
+        }
+
+        fn root(&self, _ctx: &Ctx) -> Option<String> {
+            Some("/tmp/vcs-test".to_string())
+        }
+
+        fn branch(&self, _ctx: &Ctx) -> Option<String> {
+            Some("main".to_string())
+        }
+    }
+
+    impl Methods for VcsTestPlugin {
+        const METHODS: &'static [&'static str] = &["change_id"];
+
+        fn call(&self, method: &str, _ctx: &Ctx) -> Value {
+            match method {
+                "change_id" => to_value("stub-change-id"),
+                _ => Value::Null,
+            }
+        }
+    }
+
+    impl Handler for VcsTestPlugin {
+        fn handle(&self, renders: &Renders, request: Request) -> Option<Response> {
+            handle_vcs_plugin(self, renders, request)
+        }
+    }
+
     /// A running plugin, rendering in its own temporary working directory.
     pub struct PluginFixture {
         pub dir: PathBuf,
-        binary: PathBuf,
+        start: Box<dyn Fn() -> PluginProcess>,
         plugin: PluginProcess,
         last_render: u64,
         _tempdir: tempfile::TempDir,
     }
 
     impl PluginFixture {
-        /// The general test plugin (`test`), which exercises every `Ctx` helper.
-        pub fn test_harness() -> Self {
-            Self::from_binary(plugin_binary("starship-plugin-test-harness"))
+        /// [`TestPlugin`], served in-process.
+        pub fn test_plugin() -> Self {
+            Self::new(|| PluginProcess::in_process(TestPlugin).expect("plugin should start"))
         }
 
-        /// The stub VCS plugin (`vcs-test`).
-        pub fn vcs_test_harness() -> Self {
-            Self::from_binary(plugin_binary("starship-plugin-vcs-test-harness"))
+        /// [`VcsTestPlugin`], served in-process.
+        pub fn vcs_test_plugin() -> Self {
+            Self::new(|| PluginProcess::in_process(VcsTestPlugin).expect("plugin should start"))
         }
 
-        pub fn from_binary(binary: PathBuf) -> Self {
+        /// A plugin executable, e.g. `env!("CARGO_BIN_EXE_starship-plugin-nodejs")`
+        /// in that plugin's own end-to-end tests.
+        pub fn from_binary(binary: impl Into<PathBuf>) -> Self {
+            let binary = binary.into();
+            Self::new(move || PluginProcess::spawn(&binary, None).expect("plugin should start"))
+        }
+
+        fn new(start: impl Fn() -> PluginProcess + 'static) -> Self {
             let dir = tempfile::TempDir::new().expect("tempdir");
-            let plugin = PluginProcess::spawn(&binary, None).expect("plugin should start");
             Self {
                 dir: dir.path().to_path_buf(),
-                binary,
-                plugin,
+                plugin: start(),
+                start: Box::new(start),
                 last_render: 0,
                 _tempdir: dir,
             }
@@ -473,8 +594,8 @@ pub mod test_helpers {
             let value = self.plugin.call_method(render_id, method);
             self.plugin.end_render(render_id);
             match value {
-                serde_json::Value::Null => None,
-                serde_json::Value::String(s) => Some(s),
+                Value::Null => None,
+                Value::String(s) => Some(s),
                 other => Some(other.to_string()),
             }
         }
@@ -487,7 +608,7 @@ pub mod test_helpers {
             self.begin_and_end().depth
         }
 
-        pub fn kind(&self) -> starship_plugin_core::PluginKind {
+        pub fn kind(&self) -> PluginKind {
             self.plugin.kind()
         }
 
@@ -499,12 +620,19 @@ pub mod test_helpers {
             self.plugin.name()
         }
 
+        /// The running plugin, for tests that drive the protocol directly.
+        pub fn process(&mut self) -> &mut PluginProcess {
+            &mut self.plugin
+        }
+
         /// A config loader for `return <lua_expr>`, with a fresh instance of
         /// this plugin registered.
         pub fn loader(&self, lua_expr: &str) -> ConfigLoader {
-            let plugin = PluginProcess::spawn(&self.binary, None).expect("plugin should start");
-            ConfigLoader::from_source_with_plugins(&format!("return {lua_expr}"), vec![plugin])
-                .expect("loader should build")
+            ConfigLoader::from_source_with_plugins(
+                &format!("return {lua_expr}"),
+                vec![(self.start)()],
+            )
+            .expect("loader should build")
         }
 
         /// Renders `return <lua_expr>` once with this plugin registered.
@@ -516,7 +644,7 @@ pub mod test_helpers {
             output.format.to_string()
         }
 
-        fn begin_and_end(&mut self) -> super::Applicability {
+        fn begin_and_end(&mut self) -> Applicability {
             let render_id = self.next_render();
             let context = self.context();
             let applicability = self.plugin.begin_render(render_id, &context);
@@ -534,16 +662,12 @@ pub mod test_helpers {
 #[cfg(test)]
 mod tests {
     use std::fs;
-    use std::process::{Command, Stdio};
-    use std::time::{Duration, Instant};
 
     use mlua::{Lua, LuaOptions, StdLib};
     use serde_json::Value;
 
-    use super::test_helpers::{PluginFixture, plugin_binary, render_context};
+    use super::test_helpers::{PluginFixture, TestPlugin, render_context};
     use super::{PluginKind, PluginProcess, load_plugins};
-
-    const TEST_HARNESS: &str = "starship-plugin-test-harness";
 
     #[test]
     fn sandboxed_luau_supports_index_metamethod() {
@@ -566,84 +690,26 @@ mod tests {
     }
 
     #[test]
-    fn plugin_loads_with_declared_name() {
-        let plugin = PluginFixture::test_harness();
-        assert_eq!(plugin.name(), "test");
-    }
-
-    #[test]
-    fn unknown_method_returns_null() {
-        let mut plugin = PluginFixture::test_harness();
-        assert!(plugin.get("does_not_exist").is_none());
-    }
-
-    #[test]
     fn load_plugins_empty_dir_returns_empty_vec() {
         let plugin_dir = tempfile::tempdir().expect("plugin dir");
         assert!(load_plugins(plugin_dir.path(), None).is_empty());
     }
 
-    #[cfg(unix)]
     #[test]
-    fn load_plugins_only_starts_plugin_executables() {
-        use std::os::unix::fs::PermissionsExt;
-
-        let plugin_dir = tempfile::tempdir().unwrap();
-        std::os::unix::fs::symlink(
-            plugin_binary(TEST_HARNESS),
-            plugin_dir.path().join(TEST_HARNESS),
-        )
-        .unwrap();
-        // An executable that isn't a plugin, like `starship-daemon` sitting in
-        // `target/debug`. It leaves a marker if anything runs it.
-        let marker = plugin_dir.path().join("ran");
-        let other = plugin_dir.path().join("starship-daemon");
-        fs::write(&other, format!("#!/bin/sh\ntouch '{}'\n", marker.display())).unwrap();
-        fs::set_permissions(&other, fs::Permissions::from_mode(0o755)).unwrap();
-
-        let plugins = load_plugins(plugin_dir.path(), None);
-        let names: Vec<_> = plugins.iter().map(PluginProcess::name).collect();
-        assert_eq!(names, ["test"]);
-        assert!(!marker.exists());
+    fn plugin_loads_with_declared_name() {
+        let plugin = PluginFixture::test_plugin();
+        assert_eq!(plugin.name(), "test");
     }
 
     #[test]
-    fn plugin_exits_when_stdin_closes() {
-        let mut child = Command::new(plugin_binary(TEST_HARNESS))
-            .stdin(Stdio::piped())
-            .stdout(Stdio::null())
-            .spawn()
-            .unwrap();
-        drop(child.stdin.take());
-
-        let deadline = Instant::now() + Duration::from_secs(5);
-        let status = loop {
-            if let Some(status) = child.try_wait().unwrap() {
-                break status;
-            }
-            assert!(Instant::now() < deadline, "plugin didn't exit on EOF");
-            std::thread::sleep(Duration::from_millis(10));
-        };
-        assert!(status.success());
-    }
-
-    #[test]
-    fn crashed_plugin_is_inapplicable_and_returns_nil() {
-        let dir = tempfile::tempdir().unwrap();
-        fs::write(dir.path().join(".starship-test-marker"), "").unwrap();
-        let context = render_context(dir.path());
-        let mut plugin = PluginProcess::spawn(&plugin_binary(TEST_HARNESS), None).unwrap();
-        assert!(plugin.begin_render(1, &context).applicable);
-
-        plugin.child.kill().unwrap();
-        plugin.child.wait().unwrap();
-        assert!(!plugin.begin_render(2, &context).applicable);
-        assert_eq!(plugin.call_method(2, "home"), Value::Null);
+    fn unknown_method_returns_null() {
+        let mut plugin = PluginFixture::test_plugin();
+        assert!(plugin.get("does_not_exist").is_none());
     }
 
     #[test]
     fn plugin_reads_env_from_render_context() {
-        let mut plugin = PluginFixture::test_harness();
+        let mut plugin = PluginFixture::test_plugin();
         let mut context = render_context(&plugin.dir);
         context.env.insert("HOME".into(), "/home/from-shell".into());
         assert_eq!(
@@ -659,36 +725,30 @@ mod tests {
     fn overlapping_renders_keep_their_own_context() {
         let first = tempfile::tempdir().unwrap();
         let second = tempfile::tempdir().unwrap();
-        let mut plugin = PluginProcess::spawn(&plugin_binary(TEST_HARNESS), None).unwrap();
+        let mut plugin = PluginProcess::in_process(TestPlugin).unwrap();
         plugin.begin_render(1, &render_context(first.path()));
         plugin.begin_render(2, &render_context(second.path()));
 
-        let pwd = |plugin: &mut PluginProcess, render_id| {
-            let output = plugin.call_method(render_id, "pwd");
-            fs::canonicalize(output.as_str().expect("pwd output")).unwrap()
-        };
-        assert_eq!(
-            pwd(&mut plugin, 2),
-            fs::canonicalize(second.path()).unwrap()
-        );
-        assert_eq!(pwd(&mut plugin, 1), fs::canonicalize(first.path()).unwrap());
+        let dir = |path: &std::path::Path| Value::from(path.to_str().unwrap());
+        assert_eq!(plugin.call_method(2, "dir"), dir(second.path()));
+        assert_eq!(plugin.call_method(1, "dir"), dir(first.path()));
     }
 
     #[test]
     fn calls_for_unknown_or_ended_renders_return_nil() {
         let dir = tempfile::tempdir().unwrap();
-        let mut plugin = PluginProcess::spawn(&plugin_binary(TEST_HARNESS), None).unwrap();
-        assert_eq!(plugin.call_method(99, "home"), Value::Null);
+        let mut plugin = PluginProcess::in_process(TestPlugin).unwrap();
+        assert_eq!(plugin.call_method(99, "dir"), Value::Null);
 
         plugin.begin_render(1, &render_context(dir.path()));
-        assert_ne!(plugin.call_method(1, "home"), Value::Null);
+        assert_ne!(plugin.call_method(1, "dir"), Value::Null);
         plugin.end_render(1);
-        assert_eq!(plugin.call_method(1, "home"), Value::Null);
+        assert_eq!(plugin.call_method(1, "dir"), Value::Null);
     }
 
     #[test]
     fn is_applicable_reflects_file_exists() {
-        let mut plugin = PluginFixture::test_harness();
+        let mut plugin = PluginFixture::test_plugin();
         assert!(!plugin.is_applicable());
 
         fs::write(plugin.dir.join(".starship-test-marker"), "").unwrap();
@@ -697,52 +757,35 @@ mod tests {
 
     #[test]
     fn general_plugin_reports_general_kind_and_no_shadows() {
-        let plugin = PluginFixture::test_harness();
+        let plugin = PluginFixture::test_plugin();
         assert_eq!(plugin.kind(), PluginKind::General);
         assert_eq!(plugin.shadows(), Vec::<String>::new());
     }
 
     #[test]
-    fn vcs_plugin_loads_with_declared_name() {
-        let plugin = PluginFixture::vcs_test_harness();
-        assert_eq!(plugin.name(), "vcs-test");
-    }
-
-    #[test]
     fn vcs_plugin_reports_vcs_kind_and_shadows() {
-        let plugin = PluginFixture::vcs_test_harness();
+        let plugin = PluginFixture::vcs_test_plugin();
+        assert_eq!(plugin.name(), "vcs-test");
         assert_eq!(plugin.kind(), PluginKind::Vcs);
         assert_eq!(plugin.shadows(), vec!["other-vcs".to_string()]);
     }
 
     #[test]
     fn vcs_plugin_is_applicable_when_detected() {
-        let mut plugin = PluginFixture::vcs_test_harness();
+        let mut plugin = PluginFixture::vcs_test_plugin();
         assert!(!plugin.is_applicable());
-
-        fs::write(plugin.dir.join(".vcs-test-marker"), "").unwrap();
-        assert!(plugin.is_applicable());
-    }
-
-    #[test]
-    fn vcs_plugin_reports_detect_depth() {
-        let mut plugin = PluginFixture::vcs_test_harness();
         assert_eq!(plugin.detect_depth(), None);
 
         fs::write(plugin.dir.join(".vcs-test-marker"), "").unwrap();
+        assert!(plugin.is_applicable());
         assert_eq!(plugin.detect_depth(), Some(0));
     }
 
     #[test]
-    fn vcs_plugin_routes_root_and_branch_to_trait() {
-        let mut plugin = PluginFixture::vcs_test_harness();
+    fn vcs_plugin_routes_trait_and_inherent_methods() {
+        let mut plugin = PluginFixture::vcs_test_plugin();
         assert_eq!(plugin.get("root").as_deref(), Some("/tmp/vcs-test"));
         assert_eq!(plugin.get("branch").as_deref(), Some("main"));
-    }
-
-    #[test]
-    fn vcs_plugin_routes_inherent_methods() {
-        let mut plugin = PluginFixture::vcs_test_harness();
         assert_eq!(plugin.get("change_id").as_deref(), Some("stub-change-id"));
     }
 }

@@ -453,7 +453,7 @@ mod tests {
 
     #[test]
     fn plugin_proxy_resolves_field() {
-        let plugin = PluginFixture::test_harness();
+        let plugin = PluginFixture::test_plugin();
         std::fs::write(plugin.dir.join(".starship-test-marker"), "").unwrap();
         let result = plugin.render(r#"test.home or "N/A""#);
         assert_ne!(result, "N/A");
@@ -461,30 +461,29 @@ mod tests {
 
     #[test]
     fn plugin_proxy_returns_nil_for_unknown_method() {
-        let plugin = PluginFixture::test_harness();
+        let plugin = PluginFixture::test_plugin();
         let result = plugin.render(r#"test.fakefield or "fallback""#);
         assert_eq!(result, "fallback");
     }
 
     #[test]
     fn each_read_plugin_begins_and_ends_once_per_render() {
-        use crate::plugin::test_helpers::plugin_binary;
+        use crate::plugin::test_helpers::{TestPlugin, VcsTestPlugin};
 
-        let test = PluginFixture::test_harness();
+        let test = PluginFixture::test_plugin();
         std::fs::write(test.dir.join(".starship-test-marker"), "").unwrap();
-        let spawn = |package| PluginProcess::spawn(&plugin_binary(package), None).unwrap();
         let plugins = vec![
-            spawn("starship-plugin-test-harness"),
-            spawn("starship-plugin-vcs-test-harness"),
+            PluginProcess::in_process(TestPlugin).unwrap(),
+            PluginProcess::in_process(VcsTestPlugin).unwrap(),
         ];
-        let source = "return compact(test.home, test.pwd, test.home)";
+        let source = "return compact(test.home, test.dir, test.home)";
         let mut loader = ConfigLoader::from_source_with_plugins(source, plugins).unwrap();
         for _ in 0..2 {
             loader.render(&test.context()).unwrap();
         }
 
         let counts = |name| loader.plugin_requests(name).unwrap();
-        // Two renders, each reading `home` (twice) and `pwd`.
+        // Two renders, each reading `home` (twice) and `dir`.
         assert_eq!(
             counts("test"),
             RequestCounts {

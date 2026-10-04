@@ -12,6 +12,8 @@ mod ctx;
 #[doc(hidden)]
 pub mod dispatch;
 mod exec_cache;
+#[cfg(any(test, feature = "testing"))]
+pub mod testing;
 
 pub use ctx::Ctx;
 
