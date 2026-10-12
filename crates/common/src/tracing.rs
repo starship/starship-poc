@@ -1,30 +1,33 @@
 use std::env;
 
+use tracing_subscriber::layer::SubscriberExt;
+use tracing_subscriber::util::SubscriberInitExt;
+use tracing_subscriber::{EnvFilter, Layer};
+
 /// Initialize tracing.
 ///
 /// If `STARSHIP_PROFILE` is set, output is formatted for profiling.
 ///
 /// Returns a guard that must not be dropped until the program exits.
-///
-/// # Panics
-///
-/// Panics if `STARSHIP_PROFILE` is set but the profiler fails to initialize.
 #[must_use]
 pub fn init_tracing() -> Option<impl Drop> {
-    if env::var("STARSHIP_PROFILE").is_ok() {
-        if env::var("RUST_LOG").is_err() {
-            // SAFETY: called before any threads are spawned.
-            unsafe { env::set_var("RUST_LOG", "starship=debug,warn") };
-        }
-        let guard = tracing_profile::init_tracing().expect("Failed to initialize profiler");
+    let filter = || {
+        EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("starship=debug,warn"))
+    };
+
+    if env::var_os("STARSHIP_PROFILE").is_some() {
+        // What `tracing_profile::init_tracing` installs, with our own filter
+        // instead of one read from `RUST_LOG`.
+        let (layer, guard) =
+            tracing_profile::PrintTreeLayer::new(tracing_profile::PrintTreeConfig::default());
+        tracing_subscriber::registry()
+            .with(layer.with_filter(filter()))
+            .init();
         return Some(guard);
     }
 
     tracing_subscriber::fmt()
-        .with_env_filter(
-            tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| "starship=debug,warn".parse().unwrap()),
-        )
+        .with_env_filter(filter())
         .pretty()
         .init();
     None
