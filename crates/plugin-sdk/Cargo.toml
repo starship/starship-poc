@@ -13,7 +13,7 @@ tempfile = { workspace = true, optional = true }
 which = "8.0.2"
 
 [features]
-# `TestCtx`, `assert_plugin!` and friends, for plugins' own tests.
+# `test::prelude` (`Dir`, `Env`, `Commands`, `render!`), for plugins' own tests.
 testing = ["dep:tempfile"]
 
 [dev-dependencies]

@@ -41,37 +41,39 @@ impl TestPlugin {
 
 #[cfg(test)]
 mod tests {
-    use starship_plugin_sdk::assert_plugin;
-    use starship_plugin_sdk::testing::{self, TestCtx};
+    use starship_plugin_sdk::test::prelude::*;
 
     use super::TestPlugin;
 
     #[test]
     fn applies_when_the_marker_exists() {
-        assert!(!testing::applicable(&TestPlugin, &TestCtx::new()));
-        let marked = TestCtx::new().file(".starship-test-marker", "");
-        assert!(testing::applicable(&TestPlugin, &marked));
+        let dir = Dir::new().file(".starship-test-marker", "");
+
+        let empty = render!(TestPlugin);
+        let marked = render!(TestPlugin { dir });
+
+        assert!(!empty.applicable());
+        assert!(marked.applicable());
     }
 
     #[test]
     fn reads_env_from_the_render() {
-        let ctx = TestCtx::new()
-            .env("HOME", "/home/shell")
-            .env("USER", "shell");
-        assert_plugin!(TestPlugin, ctx,
-            "home" => Some("/home/shell"),
-            "user" => Some("shell"),
-        );
-        assert_plugin!(TestPlugin, TestCtx::new(), "home" => None::<&str>);
+        let env = Env::new().var("HOME", "/home/shell").var("USER", "shell");
+
+        let with_env = render!(TestPlugin { env });
+        let without_env = render!(TestPlugin);
+
+        assert_eq!(with_env.read("home"), "/home/shell");
+        assert_eq!(with_env.read("user"), "shell");
+        assert!(without_env.read("home").is_null());
     }
 
     #[test]
-    fn commands_run_in_the_render_pwd() {
-        let ctx = TestCtx::new();
-        assert_plugin!(TestPlugin, ctx, "dir" => ctx.pwd());
+    fn reports_the_render_pwd() {
+        let dir = Dir::new().dir("src");
 
-        let pwd = testing::read(&TestPlugin, &ctx, "pwd");
-        let pwd = std::fs::canonicalize(pwd.as_str().expect("pwd output")).unwrap();
-        assert_eq!(pwd, std::fs::canonicalize(ctx.pwd()).unwrap());
+        let render = render!(TestPlugin { dir, pwd: "src" });
+
+        assert_eq!(render.read("dir"), render.path("src").to_str().unwrap());
     }
 }

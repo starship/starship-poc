@@ -61,6 +61,11 @@ impl Ctx {
     /// working directory with the shell's environment. Returns stdout when
     /// the command succeeds.
     fn run(&self, cmd: &str, args: &[&str], cached: bool) -> Option<String> {
+        #[cfg(any(test, feature = "testing"))]
+        if let Some(mock) = crate::test::mocked(cmd, args) {
+            return mock.output();
+        }
+
         let binary = which::which_in(cmd, self.env("PATH"), self.pwd()).ok()?;
         let cache = exec_cache::global();
         if cached && let Some(output) = cache.get(&binary, args) {

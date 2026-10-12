@@ -21,27 +21,38 @@ impl NodejsPlugin {
 
 #[cfg(test)]
 mod tests {
-    use starship_plugin_sdk::assert_plugin;
-    use starship_plugin_sdk::testing::{self, TestCtx};
+    use starship_plugin_sdk::test::prelude::*;
 
     use super::NodejsPlugin;
 
     #[test]
     fn applies_when_package_json_exists() {
-        assert!(!testing::applicable(&NodejsPlugin, &TestCtx::new()));
-        let project = TestCtx::new().file("package.json", "{}");
-        assert!(testing::applicable(&NodejsPlugin, &project));
+        let dir = Dir::new().file("package.json", "{}");
+
+        let empty = render!(NodejsPlugin);
+        let project = render!(NodejsPlugin { dir });
+
+        assert!(!empty.applicable());
+        assert!(project.applicable());
     }
 
     #[test]
     fn reads_the_version_without_the_v() {
-        let ctx = TestCtx::new().command("node", "v20.1.0");
-        assert_plugin!(NodejsPlugin, ctx, "version" => Some("20.1.0"));
+        let dir = Dir::new().file("package.json", "{}");
+        let commands = Commands::new().ok("node --version", "v20.1.0\n");
+
+        let render = render!(NodejsPlugin { dir, commands });
+
+        assert_eq!(render.read("version"), "20.1.0");
     }
 
     #[test]
-    fn version_is_nil_without_node() {
-        let ctx = TestCtx::new().env("PATH", "/nonexistent");
-        assert_plugin!(NodejsPlugin, ctx, "version" => None::<&str>);
+    fn version_is_nil_when_node_is_missing() {
+        let dir = Dir::new().file("package.json", "{}");
+        let commands = Commands::new().fails("node --version");
+
+        let render = render!(NodejsPlugin { dir, commands });
+
+        assert!(render.read("version").is_null());
     }
 }

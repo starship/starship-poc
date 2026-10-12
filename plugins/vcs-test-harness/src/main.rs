@@ -34,25 +34,28 @@ impl VcsTestPlugin {
 
 #[cfg(test)]
 mod tests {
-    use starship_plugin_sdk::assert_plugin;
-    use starship_plugin_sdk::testing::{self, TestCtx};
+    use starship_plugin_sdk::test::prelude::*;
 
     use super::VcsTestPlugin;
 
     #[test]
     fn detects_at_depth_zero_with_the_marker() {
-        assert_eq!(testing::depth(&VcsTestPlugin, &TestCtx::new()), None);
-        let marked = TestCtx::new().file(".vcs-test-marker", "");
-        assert_eq!(testing::depth(&VcsTestPlugin, &marked), Some(0));
-        assert!(testing::applicable(&VcsTestPlugin, &marked));
+        let dir = Dir::new().file(".vcs-test-marker", "");
+
+        let empty = render!(VcsTestPlugin);
+        let marked = render!(VcsTestPlugin { dir });
+
+        assert_eq!(empty.depth(), None);
+        assert_eq!(marked.depth(), Some(0));
+        assert!(marked.applicable());
     }
 
     #[test]
     fn routes_trait_and_inherent_methods() {
-        assert_plugin!(VcsTestPlugin, TestCtx::new(),
-            "root" => Some("/tmp/vcs-test"),
-            "branch" => Some("main"),
-            "change_id" => "stub-change-id",
-        );
+        let render = render!(VcsTestPlugin);
+
+        assert_eq!(render.read("root"), "/tmp/vcs-test");
+        assert_eq!(render.read("branch"), "main");
+        assert_eq!(render.read("change_id"), "stub-change-id");
     }
 }
