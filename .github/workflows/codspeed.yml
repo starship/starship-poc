@@ -28,7 +28,11 @@ jobs:
       - uses: actions/upload-artifact@v7
         with:
           name: codspeed-walltime
-          path: target/codspeed
+          # The plugin benches start this binary by the path Cargo compiled
+          # into them, so it travels with the benches.
+          path: |
+            target/codspeed
+            target/release/starship-plugin-test-harness
           if-no-files-found: error
           retention-days: 1
 
@@ -48,7 +52,11 @@ jobs:
       - uses: actions/upload-artifact@v7
         with:
           name: codspeed-memory
-          path: target/codspeed
+          # The plugin benches start this binary by the path Cargo compiled
+          # into them, so it travels with the benches.
+          path: |
+            target/codspeed
+            target/release/starship-plugin-test-harness
           if-no-files-found: error
           retention-days: 1
 
@@ -66,8 +74,8 @@ jobs:
       - uses: actions/download-artifact@v8
         with:
           name: codspeed-walltime
-          path: target/codspeed
-      - run: find target/codspeed -type f -exec chmod +x {} +
+          path: target
+      - run: find target/codspeed target/release -type f -exec chmod +x {} +
       - uses: CodSpeedHQ/action@v4
         with:
           mode: walltime
@@ -86,8 +94,8 @@ jobs:
       - uses: actions/download-artifact@v8
         with:
           name: codspeed-memory
-          path: target/codspeed
-      - run: find target/codspeed -type f -exec chmod +x {} +
+          path: target
+      - run: find target/codspeed target/release -type f -exec chmod +x {} +
       - uses: CodSpeedHQ/action@v4
         with:
           mode: memory
