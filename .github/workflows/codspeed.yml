@@ -28,8 +28,7 @@ jobs:
       - uses: actions/upload-artifact@v7
         with:
           name: codspeed-walltime
-          # The plugin benches start this binary by the path Cargo compiled
-          # into them, so it travels with the benches.
+          # The plugin benches start this binary, so it travels with them.
           path: |
             target/codspeed
             target/release/starship-plugin-test-harness
@@ -52,8 +51,7 @@ jobs:
       - uses: actions/upload-artifact@v7
         with:
           name: codspeed-memory
-          # The plugin benches start this binary by the path Cargo compiled
-          # into them, so it travels with the benches.
+          # The plugin benches start this binary, so it travels with them.
           path: |
             target/codspeed
             target/release/starship-plugin-test-harness
@@ -77,6 +75,9 @@ jobs:
           path: target
       - run: find target/codspeed target/release -type f -exec chmod +x {} +
       - uses: CodSpeedHQ/action@v4
+        env:
+          # This runner's checkout path can differ from the build job's.
+          STARSHIP_TEST_PLUGIN: ${{ github.workspace }}/target/release/starship-plugin-test-harness
         with:
           mode: walltime
           run: cargo codspeed run
@@ -97,6 +98,9 @@ jobs:
           path: target
       - run: find target/codspeed target/release -type f -exec chmod +x {} +
       - uses: CodSpeedHQ/action@v4
+        env:
+          # This runner's checkout path can differ from the build job's.
+          STARSHIP_TEST_PLUGIN: ${{ github.workspace }}/target/release/starship-plugin-test-harness
         with:
           mode: memory
           run: cargo codspeed run
